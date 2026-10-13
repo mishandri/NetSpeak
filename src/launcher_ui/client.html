@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>NetSpeak</title>
+<link rel="stylesheet" href="launcher.css">
+</head>
+<body>
+
+<!-- Знак — тот же, что в приложении: тот же path и те же размеры.
+     Держим его символом и ссылкой, как в src/web/index.html, чтобы правка
+     знака в одном месте не расходилась с другим. -->
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 11v2M8 7.5v9M12 4v16M16 7.5v9M20 11v2"/></symbol>
+</defs></svg>
+
+<!-- Клиент только подключается: сервер запускается отдельной программой
+     NetSpeakServer.exe. Здесь — адрес, по которому он работает. -->
+<section class="screen is-active" id="scr-join">
+  <header class="head head--row">
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><use href="#i-wave"/></svg>
+    </span>
+    <div>
+      <h1>NetSpeak</h1>
+      <p class="sub">Подключение к серверу в локальной сети</p>
+    </div>
+  </header>
+
+  <div class="fields">
+    <label class="field">
+      <span>Адрес</span>
+      <input type="text" id="hostIn" placeholder="192.168.1.2" autocomplete="off" spellcheck="false">
+    </label>
+
+    <label class="field">
+      <span>Порт</span>
+      <input type="number" id="portIn2" min="2" max="65535" step="1">
+    </label>
+  </div>
+
+  <p class="hint" id="lastHint" hidden></p>
+
+  <p class="hint hint--dim">
+    Нет сервера? Запустите <code>NetSpeakServer.exe</code> на том компьютере,
+    который будет всех собирать.
+  </p>
+
+  <p class="err" id="joinErr" hidden></p>
+
+  <div class="actions">
+    <button class="btn btn--primary" id="btnGo">Подключиться</button>
+  </div>
+
+  <p class="foot">Рабочие файлы: <code id="rootPath"></code></p>
+</section>
+
+<script src="client.js"></script>
+</body>
+</html>

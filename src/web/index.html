@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101418">
+<title>NetSpeak</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🎙️</text></svg>">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<!-- предупреждение о микрофоне: по обычному HTTP браузер его не даёт -->
+<div id="micWarn" class="micwarn" hidden>
+  <svg class="ic"><use href="#i-shield"/></svg>
+  <div>
+    <b>Голос недоступен</b>
+    <span>Браузер открывает микрофон только по защищённому соединению (HTTPS).
+      Откройте адрес, начинающийся с <code>https://</code> — NetSpeak сам на это перенаправит.</span>
+  </div>
+</div>
+
+<!-- ─────────── иконки ─────────── -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3"/></symbol>
+    <symbol id="i-mic-off" viewBox="0 0 24 24"><path d="M9 6a3 3 0 0 1 6 0v1m-6 5a3 3 0 0 0 5.2 2"/><path d="M5 11v1a7 7 0 0 0 10.6 6M19 11v1a7 7 0 0 1-.4 2M12 19v3"/><path d="M3 3l18 18"/></symbol>
+    <symbol id="i-head" viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="2.5" y="14" width="4.5" height="6" rx="2"/><rect x="17" y="14" width="4.5" height="6" rx="2"/></symbol>
+    <symbol id="i-screen" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8 20.5h8M12 16.5v4"/></symbol>
+    <symbol id="i-screen-off" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8 20.5h8M12 16.5v4M3 3l18 18"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M17.99 10.05 L21.13 10.23 L21.13 13.77 L17.99 13.95 L17.61 14.86 L19.71 17.20 L17.20 19.71 L14.86 17.61 L13.95 17.99 L13.77 21.13 L10.23 21.13 L10.05 17.99 L9.14 17.61 L6.80 19.71 L4.29 17.20 L6.39 14.86 L6.01 13.95 L2.87 13.77 L2.87 10.23 L6.01 10.05 L6.39 9.14 L4.29 6.80 L6.80 4.29 L9.14 6.39 L10.05 6.01 L10.23 2.87 L13.77 2.87 L13.95 6.01 L14.86 6.39 L17.20 4.29 L19.71 6.80 L17.61 9.14 Z"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3L10.5 13.5M21 3l-6.8 18-3.7-7.5L3 9.8 21 3z"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 24 24"><path d="M21 11.5l-8.8 8.8a5 5 0 0 1-7-7l9-9a3.4 3.4 0 0 1 4.8 4.8l-9 9a1.8 1.8 0 0 1-2.5-2.5l8.3-8.3"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3.2v2M12 18.8v2M3.2 12h2M18.8 12h2M5.8 5.8l1.4 1.4M16.8 16.8l1.4 1.4M18.2 5.8l-1.4 1.4M7.2 16.8l-1.4 1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5a8.5 8.5 0 1 0 10.8 10.8z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.5l7.5 3v6c0 4.6-3.1 8.8-7.5 10-4.4-1.2-7.5-5.4-7.5-10v-6l7.5-3z"/><path d="M9.2 12.3l2 2 3.6-3.9"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-exit" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 8l-4 4 4 4M6 12h10"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 5.2a3.5 3.5 0 0 1 0 5.6M18 20a6.4 6.4 0 0 0-2-4.6"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11M7.5 11L12 15.5 16.5 11M5 20h14"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 11v2M8 7.5v9M12 4v16M16 7.5v9M20 11v2"/></symbol>
+  </defs>
+</svg>
+
+<!-- ─────────── экран входа ─────────── -->
+<div id="login" class="login">
+  <div class="login__tools">
+    <button class="icon-btn" id="btnThemeLogin" title="Светлая / тёмная тема">
+      <svg class="ic"><use href="#i-sun" id="themeIconLogin"/></svg>
+    </button>
+    <button class="icon-btn icon-btn--gear" id="btnSettingsLogin" title="Настройки звука">
+      <svg class="ic"><use href="#i-gear"/></svg>
+    </button>
+  </div>
+
+  <form id="loginForm" class="card" autocomplete="off">
+    <div class="brand">
+      <span class="brand__mark"><svg class="ic"><use href="#i-wave"/></svg></span>
+      <span class="brand__name">NetSpeak</span>
+    </div>
+    <p class="card__sub">Говорим по локальной сети. Интернет не нужен.</p>
+
+    <label class="field">
+      <span>Как вас зовут</span>
+      <input id="loginName" maxlength="24" placeholder="Ваше имя" required>
+    </label>
+
+    <label class="field">
+      <span>Зайти в канал</span>
+      <select id="loginChannel"></select>
+    </label>
+
+    <label class="field" id="loginPwWrap" hidden>
+      <span>Пароль сервера</span>
+      <input id="loginPass" type="password" placeholder="••••••">
+    </label>
+
+    <button id="loginBtn" class="btn btn--big btn--primary" type="submit">Подключиться</button>
+    <p id="loginError" class="card__error" hidden></p>
+    <p class="card__hint">
+      <span id="slotsLine">Сейчас в сети: —</span>
+    </p>
+
+    <p class="card__hint card__hint--addr">
+      Подключайтесь с других устройств: <b id="loginAddr">—</b>
+    </p>
+  </form>
+</div>
+
+<!-- ─────────── основное приложение ─────────── -->
+<div id="app" class="app" hidden>
+
+  <div id="voiceWarn" class="voice-warn" hidden>
+    <svg class="ic ic--sm"><use href="#i-mic"/></svg>
+    <div class="voice-warn__body">
+      <b id="voiceWarnTitle">Звук не идёт</b>
+      <span id="voiceWarnText"></span>
+    </div>
+    <button class="voice-warn__btn" id="voiceWarnFix" type="button"
+            title="Показать, что делать">Как исправить</button>
+    <button class="voice-warn__x" id="voiceWarnClose" type="button" title="Скрыть">×</button>
+  </div>
+
+  <header class="topbar">
+    <button class="icon-btn topbar__menu" id="btnChannels" title="Каналы"><svg class="ic"><use href="#i-menu"/></svg></button>
+    <div class="brand brand--small">
+      <span class="brand__mark"><svg class="ic"><use href="#i-wave"/></svg></span>
+      <span class="brand__name">NetSpeak</span>
+    </div>
+    <div class="topbar__right">
+      <span class="pill" id="slotsPill" title="Занято мест на сервере">—</span>
+      <span class="pill" id="pingPill" title="Задержка до сервера">— мс</span>
+      <button class="icon-btn icon-btn--panel" id="btnTheme" title="Светлая / тёмная тема">
+        <svg class="ic"><use href="#i-sun" id="themeIcon"/></svg>
+      </button>
+      <button class="icon-btn icon-btn--panel icon-btn--gear" id="btnSettings" title="Настройки звука">
+        <svg class="ic"><use href="#i-gear"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- каналы -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__head">
+        <span>Каналы</span>
+        <button class="icon-btn icon-btn--sm" id="closeSidebar"><svg class="ic"><use href="#i-close"/></svg></button>
+      </div>
+      <nav id="channelList" class="channels"></nav>
+      <div class="sidebar__foot">
+        <div id="serverName" class="muted-xs"></div>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim" hidden></div>
+
+    <main class="main">
+      <section class="stage">
+        <div class="stage__empty" id="stageEmpty">
+          <svg class="ic ic--xl"><use href="#i-users"/></svg>
+          <p>В этом канале пока никого нет</p>
+          <span>Позовите друзей — они подключатся по адресу из окна входа</span>
+        </div>
+        <!-- раздел видео пока не используется: показ экрана отключён -->
+        <div class="videos" id="videos"></div>
+        <div class="stage__people" id="tileGrid"></div>
+      </section>
+
+      <section class="chat">
+        <header class="chat__head">
+          <span id="chatTitle">Чат</span>
+          <span class="muted-xs" id="chatHint"></span>
+        </header>
+        <div class="chat__log" id="chatLog"></div>
+        <form class="chat__form" id="chatForm">
+          <button type="button" class="icon-btn" id="attachBtn" title="Прикрепить файл"><svg class="ic"><use href="#i-clip"/></svg></button>
+          <input type="file" id="fileInput" hidden>
+          <input id="chatText" placeholder="Написать сообщение…" autocomplete="off" maxlength="800">
+          <button type="submit" class="icon-btn icon-btn--send" title="Отправить"><svg class="ic"><use href="#i-send"/></svg></button>
+        </form>
+      </section>
+    </main>
+
+    <!-- участники -->
+    <aside class="members">
+      <div class="sidebar__head">
+        <span><svg class="ic ic--sm"><use href="#i-users"/></svg> Участники</span>
+        <span class="badge" id="membersCount">0</span>
+      </div>
+      <div class="members__list" id="membersList"></div>
+    </aside>
+  </div>
+
+  <footer class="controls">
+    <button class="ctl" id="micBtn">
+      <svg class="ic"><use href="#i-mic-off"/></svg>
+      <span id="micLabel">Микрофон выкл</span>
+    </button>
+    <button class="ctl" id="deafenBtn">
+      <svg class="ic"><use href="#i-head"/></svg>
+      <span>Звук вкл</span>
+    </button>
+    <div class="controls__spacer"></div>
+    <span class="ptt-hint" id="pttHint" hidden></span>
+    <button class="ctl ctl--danger" id="leaveBtn">
+      <svg class="ic"><use href="#i-exit"/></svg>
+      <span>Выйти</span>
+    </button>
+  </footer>
+</div>
+
+<!-- ─────────── настройки ─────────── -->
+<div class="modal" id="settingsModal" hidden>
+  <div class="modal__box">
+    <header class="modal__head">
+      <h2>Настройки</h2>
+      <button class="icon-btn" id="closeSettings"><svg class="ic"><use href="#i-close"/></svg></button>
+    </header>
+
+    <div class="modal__body">
+      <h3 class="modal__sub">Профиль</h3>
+
+      <div class="profile">
+        <button type="button" class="profile__pic" id="avatarPick" title="Выбрать картинку">
+          <img id="avatarImg" alt="" hidden>
+          <span class="avatar avatar--lg" id="avatarCircle">?</span>
+        </button>
+        <div class="profile__fields">
+          <label class="field">
+            <span>Ваше имя</span>
+            <input id="profileName" maxlength="24" placeholder="Как вас зовут" autocomplete="off">
+          </label>
+          <label class="check">
+            <input type="checkbox" id="showCircle" checked>
+            <span>Показывать цветной кружок, если нет картинки</span>
+          </label>
+          <div class="profile__row">
+            <button type="button" class="btn btn--ghost" id="avatarPickBtn">Выбрать картинку</button>
+            <button type="button" class="btn btn--ghost" id="avatarClearBtn" hidden>Убрать картинку</button>
+            <input type="file" id="avatarInput" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+          </div>
+          <small class="field__hint field__hint--block">Картинка сохраняется в папку
+            <code>user/avatars</code> рядом с программой и видна другим участникам.</small>
+        </div>
+      </div>
+
+      <h3 class="modal__sub">Микрофон</h3>
+
+      <label class="field">
+        <span>Как включать микрофон</span>
+        <div class="segmented" id="modeSegment">
+          <button type="button" data-mode="ptt" class="seg">Удержанием</button>
+          <button type="button" data-mode="on" class="seg is-active">Всегда</button>
+        </div>
+      </label>
+
+      <label class="field" id="keyField">
+        <span>Клавиша разговора</span>
+        <button type="button" class="keycap" id="pttKey">
+          <span class="keycap__val">Пробел</span>
+          <span class="keycap__hint">нажмите, чтобы изменить</span>
+        </button>
+      </label>
+
+      <label class="field" id="hotkeyField">
+        <span>Клавиша включения микрофона</span>
+        <button type="button" class="keycap" id="micHotkey">
+          <span class="keycap__val">Ctrl + Пробел</span>
+          <span class="keycap__hint">нажмите сочетание</span>
+        </button>
+      </label>
+
+      <label class="field">
+        <span>Микрофон</span>
+        <select id="micDevice"></select>
+      </label>
+
+      <label class="field">
+        <span>Динамики</span>
+        <select id="speakerDevice"></select>
+      </label>
+
+      <h3 class="modal__sub">Звук под себя</h3>
+
+      <label class="field">
+        <span>Громкость микрофона — <b id="gainValue">100%</b></span>
+        <div class="meter" id="micMeterBox">
+          <i class="meter__cut" id="micMeterCut"></i>
+          <i class="meter__loud" id="micMeterLoud"></i>
+          <b class="meter__gate" id="micMeterGate"></b>
+        </div>
+        <small class="field__hint">Зелёное — что уйдёт в сеть. Красное — то, что срежет
+          «Порог шума». Вертикальная черта стоит на пороге.</small>
+        <div class="range" id="rangeGain">
+          <input type="range" id="micGain" min="0" max="200" step="5" value="100">
+        </div>
+      </label>
+
+      <label class="field">
+        <span>Обрезка низких частот — <b id="highpassValue">70 Гц</b></span>
+        <div class="range" id="rangeHighpass">
+          <input type="range" id="highpass" min="0" max="200" step="5" value="70">
+        </div>
+        <small class="field__hint">Убирает гул, вентилятор и дрожание стола. 0 — не обрезать.</small>
+      </label>
+
+      <label class="field">
+        <span>Порог шума — <b id="gateValue">6</b></span>
+        <div class="range" id="rangeGate">
+          <input type="range" id="gate" min="0" max="40" step="1" value="6">
+        </div>
+        <small class="field__hint">Тише этого — фон, и в сеть он не пойдёт. 0 — не фильтровать.</small>
+      </label>
+
+      <label class="field">
+        <span>Выравнивание громкости — <b id="levelingValue">40</b></span>
+        <div class="range" id="rangeLeveling">
+          <input type="range" id="leveling" min="0" max="100" step="5" value="40">
+        </div>
+        <small class="field__hint">Приглушает громкие всплески, чтобы вас не завышало. 0 — не трогать.</small>
+      </label>
+
+      <h3 class="modal__sub">Обработка силами браузера</h3>
+
+      <label class="check"><input type="checkbox" id="optEcho" checked><span>Подавление эха</span></label>
+      <label class="check"><input type="checkbox" id="optNoise" checked><span>Шумоподавление</span></label>
+      <label class="check"><input type="checkbox" id="optAgc" checked><span>Авто-усиление громкости</span></label>
+      <small class="field__hint field__hint--block">У браузера это только «да/нет», ползунками их не сделать.
+        Меняются сразу после «Готово». А точную настройку дают ползунки выше.</small>
+
+      <h3 class="modal__sub">Проверка связи</h3>
+
+      <div class="vcheck">
+        <button class="btn" id="btnSoundCheck" type="button">
+          Проверить звук
+        </button>
+        <div class="vcheck__out" id="soundCheckOut" hidden></div>
+      </div>
+
+      <h3 class="modal__sub">Проверка связи</h3>
+
+      <div class="vcheck">
+        <button class="btn" id="btnSoundCheck" type="button">
+          Проверить звук
+        </button>
+        <div class="vcheck__out" id="soundCheckOut" hidden></div>
+      </div>
+
+      <div class="mstat-box" id="micStatus" hidden>
+        <h3>Что включил браузер</h3>
+        <div id="micStatusRows"></div>
+        <p class="mstat-note">Подавление эха работает, пока звук идёт в наушники.
+          Через колонки браузер глушить эхо не умеет — будет самослышание.</p>
+      </div>
+    </div>
+
+    <footer class="modal__foot">
+      <button class="btn btn--primary" id="saveSettings">Готово</button>
+    </footer>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

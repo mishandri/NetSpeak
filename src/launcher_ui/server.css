@@ -1,0 +1,47 @@
+/* Окно локального сервера. Тёмная тема — как в остальной программе,
+   но значок бордовый, чтобы окно сервера не путать с окном клиента.
+   Градиент тот же, что в icon-server.ico. */
+.server-body {
+  --accent: #c94062;
+  --accent-soft: #8a1c3e;
+  display: flex; flex-direction: column;
+  padding: 22px 24px 18px; gap: 14px; overflow: hidden;
+}
+
+/* Тот же знак, что в приложении, только бордовый. Размеры и обводка —
+   из launcher.css, здесь меняется только цвет: полоски почти чёрные. */
+.server-body .mark,
+.server-body .srv-badge {
+  background: linear-gradient(135deg, var(--accent), var(--accent-soft));
+}
+.server-body .mark svg,
+.server-body .srv-badge svg {
+  stroke: #180209;
+}
+
+/* строка состояния: зелёная точка работает, красная — остановлен */
+.srv-row { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #3fbf7f; flex: none;
+}
+.dot.is-off { background: var(--danger); }
+.dot.is-wait { background: #d9b53a; }
+.muted { color: var(--muted); font-weight: 400; font-size: 12.5px; }
+
+.server-body .log { min-height: 120px; }
+
+/* Готовое обновление: тихо заметно, но не кричит */
+.upd {
+  margin: 0; font-size: 12.5px; color: var(--accent);
+  border: 1px solid #55323a; border-radius: 9px;
+  background: #241a1e; padding: 7px 10px;
+}
+
+.server-body .actions { margin-top: auto; }
+
+/* остановка — действие, которое легко сделать не там, поэтому другая */
+.btn--stop {
+  background: #2a1b1e; border-color: #55323a; color: #ff9a9a;
+}
+.btn--stop:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }

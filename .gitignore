@@ -1,0 +1,29 @@
+# рабочие данные — создаются при первом запуске рядом с программой.
+# Без ведущего слэша: иначе не попадут в мусор bin/, если запустить exe оттуда
+settings/
+user/
+logs/
+data/
+
+# сборка
+/build/
+/dist/
+*.spec.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# редакторы
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+
+# Windows
+ehthumbs.db
+$RECYCLE.BIN/

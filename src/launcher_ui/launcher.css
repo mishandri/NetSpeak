@@ -1,0 +1,144 @@
+/* Окно запуска NetSpeak. Тёмная тема — та же, что и в самом приложении,
+   чтобы переход из запуска в чат не выглядел как два разных приложения. */
+
+:root {
+  --bg: #0e1319;
+  --panel: #1b222c;
+  --panel-2: #222b36;
+  --line: #2b3542;
+  --text: #e6edf3;
+  --muted: #93a1b0;
+  --accent: #3fc79a;
+  --danger: #e05252;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; height: 100%;
+  background: var(--bg); color: var(--text);
+  font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+  -webkit-user-select: none; user-select: none;
+  overflow: hidden;
+}
+
+/* экраны переключаются как страницы */
+.screen {
+  display: none; height: 100%; padding: 20px 24px 16px;
+  flex-direction: column; gap: 13px;
+}
+body { display: flex; }
+.screen.is-active { display: flex; }
+
+/* Страховка: при крупном масштабировании Windows содержимое становится
+   выше окна. Прокрутка лучше, чем кнопка, до которой нельзя дотянуться.
+   В нормальном случае прокручивать нечего — содержимое ниже не идёт. */
+.screen { overflow-y: auto; overflow-x: hidden; }
+
+/* ── шапка ── */
+.head h1 { margin: 0; font-size: 21px; font-weight: 600; }
+.head .sub { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.head { display: flex; flex-direction: column; }
+
+/* вариант в строку: значок слева, подписи справа — экономит высоту окна */
+.head--row { flex-direction: row; align-items: center; gap: 14px; }
+.head--row .mark { margin-bottom: 0; }
+
+/* адрес и порт в один ряд — так окно ниже */
+.fields { display: flex; gap: 12px; }
+.fields .field:first-child { flex: 1; min-width: 0; }
+.fields .field:last-child { width: 120px; flex: none; }
+
+.hint--dim { color: var(--muted); font-size: 12.5px; }
+
+/* Тот же знак, что в приложении, — ровно теми же числами:
+   квадрат 42px, скругление 12px, рисунок 20px, обводка 1.9, круглые концы.
+   (styles.css, .brand__mark и .ic.)
+
+   Раньше знак был собран из CSS-градиентов, и проценты считались от всего
+   квадрата, а не от внутреннего поля 24×24. Полоски разъехались вдвое
+   шире и растянулись по высоте — выглядело как грязь. Рисуем тем же SVG,
+   какой рисуется в приложении, и расхождений быть не может. */
+.mark {
+  display: grid; place-items: center;
+  width: 42px; height: 42px; border-radius: 12px; margin-bottom: 14px;
+  background: linear-gradient(135deg, var(--accent), #2a7fd4);
+  flex: none;
+}
+.mark svg {
+  width: 20px; height: 20px;
+  fill: none; stroke: var(--on-accent, #08221a); stroke-width: 1.9;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* ── карточки выбора ── */
+.cards { display: flex; flex-direction: column; gap: 12px; }
+.card {
+  text-align: left; padding: 16px 18px; border-radius: 14px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  display: flex; flex-direction: column; gap: 4px;
+  font: inherit; transition: border-color .15s, background .15s;
+}
+.card:hover { border-color: var(--accent); background: var(--panel-2); }
+.card b { font-size: 15.5px; font-weight: 600; }
+.card span { color: var(--muted); font-size: 13px; }
+
+.foot { margin: auto 0 0; color: var(--muted); font-size: 12px; }
+code {
+  background: var(--panel-2); padding: 1px 6px; border-radius: 5px;
+  font-family: Consolas, monospace; font-size: 12px;
+}
+
+/* ── поля ── */
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field > span { color: var(--muted); font-size: 12.5px; }
+.field small { color: var(--muted); font-size: 11.5px; }
+input[type=text], input[type=number] {
+  background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  border-radius: 10px; padding: 10px 12px; font: inherit; outline: none;
+  -webkit-user-select: text; user-select: text;
+}
+input:focus { border-color: var(--accent); }
+
+.radios { display: flex; flex-direction: column; gap: 6px; }
+.radios label {
+  display: flex; align-items: center; gap: 9px; padding: 9px 12px;
+  border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+  background: var(--panel); font-size: 14px;
+}
+.radios label:hover { border-color: var(--accent); }
+.radios input { accent-color: var(--accent); }
+
+.check { display: flex; align-items: center; gap: 9px; font-size: 13.5px; cursor: pointer; }
+.check input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+.err {
+  margin: 0; color: var(--danger); font-size: 13px; white-space: pre-line;
+}
+.hint { margin: 0; color: var(--muted); font-size: 12.5px; }
+
+/* ── журнал ── */
+.log {
+  flex: 1; margin: 0; padding: 12px 14px; overflow: auto; resize: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  color: var(--muted); font: 12.5px/1.55 Consolas, monospace;
+  -webkit-user-select: text; user-select: text; white-space: pre-wrap;
+}
+.status { margin: 0; color: var(--muted); font-size: 13px; }
+.status.is-ok { color: var(--accent); }
+.status.is-bad { color: var(--danger); }
+
+/* ── кнопки ── */
+.actions { margin-top: auto; display: flex; gap: 9px; justify-content: flex-end; }
+.btn {
+  padding: 10px 18px; border-radius: 10px; cursor: pointer; font: inherit;
+  background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  transition: border-color .15s, background .15s;
+}
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn--primary {
+  background: var(--accent); border-color: var(--accent);
+  color: #08221a; font-weight: 600;
+}
+.btn--primary:hover:not(:disabled) { background: #37b78b; border-color: #37b78b; }

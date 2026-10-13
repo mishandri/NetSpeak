@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Сервер NetSpeak</title>
+<link rel="stylesheet" href="launcher.css">
+<link rel="stylesheet" href="server.css">
+</head>
+<body class="server-body">
+
+<!-- Знак — тот же, что в приложении: тот же path и те же размеры,
+     символом и ссылкой, как в src/web/index.html. -->
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 11v2M8 7.5v9M12 4v16M16 7.5v9M20 11v2"/></symbol>
+</defs></svg>
+
+<!-- Окно локального сервера. Всегда на виду, пока сервер работает:
+     видно, что он жив, и его можно остановить или перезапустить. -->
+<header class="head">
+  <span class="mark" aria-hidden="true">
+    <svg viewBox="0 0 24 24"><use href="#i-wave"/></svg>
+  </span>
+  <h1>Локальный сервер</h1>
+  <p class="sub" id="addrLine"></p>
+</header>
+
+<div class="srv-row">
+  <span class="dot" id="dot"></span>
+  <b id="stateText">Работает</b>
+  <span class="muted" id="since"></span>
+</div>
+
+<pre class="log" id="logBox"></pre>
+
+<!-- Обновление: появляется, когда новая версия уже скачана. Сервер сам
+     перезапустится с ней в 3:00 ночи или по кнопке «Перезапустить». -->
+<p class="upd" id="updLine" hidden></p>
+
+<p class="err" id="err" hidden></p>
+
+<div class="actions">
+  <button class="btn" id="btnBrowser">Открыть в браузере</button>
+  <button class="btn" id="btnFirewall" title="Голос идёт напрямую между компьютерами. Если брандмауэр его не пускает — собеседника не будет слышно">Разрешить в брандмауэре</button>
+  <button class="btn" id="btnRestart">Перезапустить</button>
+  <button class="btn btn--stop" id="btnStop">Остановить</button>
+</div>
+
+<script src="server.js"></script>
+</body>
+</html>
