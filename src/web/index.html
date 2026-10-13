@@ -302,26 +302,41 @@
 
       <h3 class="modal__sub">Обработка силами браузера</h3>
 
-      <label class="check"><input type="checkbox" id="optEcho" checked><span>Подавление эха</span></label>
-      <label class="check"><input type="checkbox" id="optNoise" checked><span>Шумоподавление</span></label>
-      <label class="check"><input type="checkbox" id="optAgc" checked><span>Авто-усиление громкости</span></label>
-      <small class="field__hint field__hint--block">У браузера это только «да/нет», ползунками их не сделать.
-        Меняются сразу после «Готово». А точную настройку дают ползунки выше.</small>
+      <label class="field field--tight">
+        <span>Подавление эха</span>
+        <label class="check"><input type="checkbox" id="optEcho" checked>
+          <span>Собеседник не слышит вас, когда вы говорите в микрофон</span></label>
+        <small class="field__hint">Работает только в наушниках: через колонки
+          микрофон слышит колонки, и бороться с этим нечем. В наушниках — не
+          нужно отодвигаться от микрофона и повышать голос.</small>
+      </label>
+
+      <label class="field field--tight">
+        <span>Шумоподавление</span>
+        <label class="check"><input type="checkbox" id="optNoise" checked>
+          <span>Убирает фоновый гул, вентилятор, шорох</span></label>
+        <small class="field__hint">Иногда принимает за шум и ваш собственный
+          голос. Тогда выключите и поднимите «Громкость микрофона».</small>
+      </label>
+
+      <label class="field field--tight">
+        <span>Авто-усиление громкости</span>
+        <label class="check"><input type="checkbox" id="optAgc" checked>
+          <span>Само прибавляет громкость, когда вы тихо говорите</span></label>
+        <small class="field__hint">Работает рывками, особенно на дешёвых
+          микрофонах. Если слышно, что громкость то прибавляется, то
+          пропадает, — выключите и крутите ползунок сами.</small>
+      </label>
+
+      <small class="field__hint field__hint--block">У браузера это только «да/нет»,
+        ползунками их не сделать, и применяются они сразу после «Готово».
+        Точную настройку дают ползунки выше.</small>
 
       <h3 class="modal__sub">Проверка связи</h3>
 
       <div class="vcheck">
         <button class="btn" id="btnSoundCheck" type="button">
-          Проверить звук
-        </button>
-        <div class="vcheck__out" id="soundCheckOut" hidden></div>
-      </div>
-
-      <h3 class="modal__sub">Проверка связи</h3>
-
-      <div class="vcheck">
-        <button class="btn" id="btnSoundCheck" type="button">
-          Проверить звук
+          Проверить связь
         </button>
         <div class="vcheck__out" id="soundCheckOut" hidden></div>
       </div>

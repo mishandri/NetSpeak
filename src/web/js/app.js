@@ -233,12 +233,25 @@ const state = {
 let storeApi = true; // доступен ли файловый сервер
 let profileReady = Promise.resolve(); // чем дожидаться загрузки профиля
 
+/**
+ * Ссылка на МОЙ аватар.
+ *
+ * Раньше настройки смотрели только в state.profile, а туда аватар попадает
+ * лишь после того, как профиль сохранили в браузере. Если по какой-то
+ * причине не попал — в настройках был кружок с буквой, хотя аватар был на
+ * месте: в списке участников, на плитках, у других людей. Теперь берём и
+ * оттуда тоже: правда одна, и она у сервера.
+ */
+function myAvatarUrl() {
+  return state.profile.avatarUrl || state.me?.avatar || "";
+}
+
 /** Подменяет данные своими: профиль у нас свежее, чем то, что прислал сервер. */
 function withMyProfile(u) {
   if (!u || u.id !== state.sid) return u;
   return {
     ...u,
-    avatar: state.profile.avatarUrl || u.avatar,
+    avatar: myAvatarUrl() || u.avatar,
     showCircle: state.profile.showCircle,
   };
 }
@@ -1331,9 +1344,10 @@ function refreshProfileUi() {
   els.showCircle.checked = p.showCircle !== false;
 
   const wantCircle = p.showCircle !== false;
-  els.avatarCircle.hidden = !!p.avatarUrl || !wantCircle;
-  if (p.avatarUrl) {
-    els.avatarImg.src = p.avatarUrl;
+  const pic = myAvatarUrl();
+  els.avatarCircle.hidden = !!pic || !wantCircle;
+  if (pic) {
+    els.avatarImg.src = pic;
     els.avatarImg.hidden = false;
     els.avatarClearBtn.hidden = false;
   } else {
@@ -1447,7 +1461,7 @@ function avatarFor(m, cls = "avatar avatar--sm") {
     return avatarMarkup({
       name: m.name,
       color: m.color,
-      avatar: state.profile.avatarUrl || state.me?.avatar || "",
+      avatar: myAvatarUrl(),
       showCircle: state.profile.showCircle,
     }, cls);
   }
@@ -1537,6 +1551,33 @@ async function testMic(ms = 2000) {
   return { ok: peak > 6, peak: Math.round(peak), out: Math.round(outPeak) };
 }
 
+/**
+ * Сколько времени отвечает сервер.
+ *
+ * Связь с собеседниками идёт напрямую между компьютерами, минуя сервер, и
+ * если с сервером всё плохо, то и с людьми будет плохо — только найти
+ * причину станет труднее. Поэтому проверка идёт по порядку: сперва сервер,
+ * потом микрофон, и лишь затем все, кто в канале.
+ */
+async function pingServer() {
+  const tries = 3;
+  let best = null;
+  for (let i = 0; i < tries; i++) {
+    const t = performance.now();
+    try {
+      const res = await api("/api/send", { sid: state.sid, type: "ping",
+                                            t: performance.now() });
+      if (res && res.ok !== false) {
+        const rtt = Math.round(performance.now() - t);
+        best = best === null ? rtt : Math.min(best, rtt);
+      }
+    } catch (err) {
+      return { ok: false, error: String(err.message || err) };
+    }
+  }
+  return { ok: best !== null, rtt: best };
+}
+
 async function runSoundCheck() {
   const out = els.soundCheckOut;
   const btn = els.btnSoundCheck;
@@ -1545,13 +1586,30 @@ async function runSoundCheck() {
   out.innerHTML = checkLine("wait", "Проверяем…");
 
   const lines = [];
+
+  // 1. сервер: без него дальше идти незачем
+  lines.push(checkLine("wait", "Сервер: проверяем ответ"));
+  const ping = await pingServer();
+  if (!ping.ok) {
+    lines[0] = checkLine("no", "Сервер не отвечает",
+      "Об этом стоит знать в первую очередь: связь с людьми идёт мимо него, "
+      + "и при плохом сервере связь с ними тоже будет плохой. Проверьте, "
+      + "запущен ли сервер, и не мешает ли брандмауэр.");
+  } else if (ping.rtt > 150) {
+    lines[0] = checkLine("wait", `Сервер отвечает, но медленно — ${ping.rtt} мс`,
+      "Связь будет прерываться. Проверьте, не грузит ли кто-то сеть.");
+  } else {
+    lines[0] = checkLine("ok", `Сервер отвечает — ${ping.rtt} мс`,
+      "С сервером всё в порядке, дальше проверяем звук.");
+  }
+
   try {
     lines.push(checkLine("wait", "Колонки: сейчас будет короткий тон"));
     await testSpeakers();
-    lines[0] = checkLine("ok", "Тон отправлен в колонки",
+    lines[1] = checkLine("ok", "Тон отправлен в колонки",
       "Если вы его не слышали — дело в колонках или в системной громкости, а не в сети");
   } catch (e) {
-    lines[0] = checkLine("no", "Колонки: звук отправить не вышло", String(e.message || e));
+    lines[1] = checkLine("no", "Колонки: звук отправить не вышло", String(e.message || e));
   }
 
   const mic = await testMic();
