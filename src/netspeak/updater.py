@@ -51,8 +51,18 @@ COMPONENTS = {
 #: не должно подвешивать запуск программы.
 TIMEOUT = 12
 
-#: Как часто сервер проверяет новые версии: раз в сутки.
+#: Как часто сервер проверяет новые версии: раз в сутки. Сервер запускают
+#: надолго и заглядывают в него редко — суточный шаг тут уместен.
 SERVER_CHECK_SECONDS = 24 * 3600
+
+#: А как часто клиент. Клиент живёт недолго, его закрывают и открывают
+#: снова, и по просьбе он должен узнавать о новой версии при запуске.
+#: Раньше он пользовался тем же суточным шагом, из-за чего после первой
+#: же проверки переставал спрашивать до следующих суток: человек публикует
+#: релиз, перезапускает программу — а она молчит, и непонятно почему.
+#: Две минуты нужны лишь на случай, если программу перезапускают много раз
+#: подряд: за это время к GitHub не обратиться физически невозможно.
+CLIENT_CHECK_SECONDS = 120
 
 #: Когда сервер перезапускается ради обновления.
 NIGHT_HOUR = 3
@@ -412,11 +422,17 @@ class UpdateWatcher:
         self._save()
 
     # ── цикл ─────────────────────────────────────────────────────────────
+    def interval(self) -> int:
+        """Свой шаг проверки: у клиента и у сервера он разный."""
+        if self.component == "client":
+            return CLIENT_CHECK_SECONDS
+        return SERVER_CHECK_SECONDS
+
     def due(self) -> bool:
-        """Пора ли смотреть: сутки прошло или ни разу не смотрели."""
+        """Пора ли смотреть: прошло достаточно времени или ещё ни разу."""
         if not self.state.last_check:
             return True
-        return (time.time() - self.state.last_check) >= SERVER_CHECK_SECONDS
+        return (time.time() - self.state.last_check) >= self.interval()
 
     def start(self, first_delay: float = 8.0) -> None:
         """Запустить фоновую проверку. first_delay — чтобы не мешать старту."""
@@ -435,7 +451,7 @@ class UpdateWatcher:
                 # спим короткими кусками, чтобы остановка была быстрой
                 if self._stop.wait(60):
                     return
-                if time.time() - self.state.last_check < SERVER_CHECK_SECONDS:
+                if time.time() - self.state.last_check < self.interval():
                     continue
 
         self._thread = threading.Thread(target=loop, daemon=True,
