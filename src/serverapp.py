@@ -407,7 +407,10 @@ def run_server_app() -> int:
     api = ServerApi(control, state)
 
     window = webview.create_window(
-        f"{APP_NAME} — сервер",
+        # Версия в заголовке: видно с панели задач, не открывая свойства.
+        # Раньше окна сервера и клиента назывались одинаково и различались
+        # только иконкой — легко было запустить не то.
+        f"{APP_NAME} — сервер {__version__}",
         str(server_ui_file()),
         js_api=api,
         width=700, height=540, min_size=(560, 420),

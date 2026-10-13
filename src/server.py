@@ -158,7 +158,8 @@ def safe_filename(raw: str) -> str:
 class Member:
     __slots__ = ("id", "uid", "name", "channel", "color", "muted", "deafened",
                  "sharing", "ping", "since", "queue", "closed", "budget", "_t",
-                 "last_seen", "avatar", "avatar_rev", "showCircle")
+                 "last_seen", "avatar", "avatar_rev", "showCircle",
+                 "client_version")
 
     def __init__(self, mid: str, name: str, channel: str, color: str,
                  uid: str = ""):
@@ -183,6 +184,7 @@ class Member:
         self.last_seen = time.time()
         self.avatar = ""      # имя файла аватара в user/avatars/
         self.avatar_rev = 0   # номер версии: растёт при каждой загрузке картинки
+        self.client_version = ""   # версия клиента, если он его назвал
         self.showCircle = True  # показывать ли цветной кружок
 
     def view(self) -> dict:
@@ -199,6 +201,8 @@ class Member:
             "since": int(self.since),
             "avatar": avatar_url(self.avatar, self.avatar_rev),
             "showCircle": self.showCircle,
+            # версия клиента: без неё в настройках нечего показать
+            "clientVersion": self.client_version,
         }
 
 
@@ -469,7 +473,7 @@ class Hub:
     # -- участники --------------------------------------------------------
     def join(self, sid: str, name: str, channel: str,
             avatar: str = "", show_circle: bool = True,
-            uid: str = "") -> Member:
+            uid: str = "", client_version: str = "") -> Member:
         with self.lock:
             old = self.members.get(sid)
             if old is not None:  # переподключение того же клиента
@@ -494,6 +498,8 @@ class Hub:
                     and ".." not in avatar:
                 member.avatar = avatar
             member.showCircle = bool(show_circle)
+            if client_version:
+                member.client_version = str(client_version)[:16]
             self.members[sid] = member
 
             # Запоминаем человека: имя и аватар, чтобы их видели другие.
@@ -983,7 +989,6 @@ class Handler(BaseHTTPRequestHandler):
                 "channels": HUB.public_channels(),
                 "people": HUB.known_profiles(),
                 "addresses": addresses(self.server.server_address[1]),
-                "version": 1,
                 **HUB.occupancy(),
             })
         elif route == "/api/device":
@@ -1119,6 +1124,7 @@ class Handler(BaseHTTPRequestHandler):
             avatar=(query.get("avatar") or [""])[0],
             show_circle=(query.get("circle") or ["1"])[0] != "0",
             uid=(query.get("uid") or [""])[0][:64],
+            client_version=(query.get("cv") or [""])[0][:16],
         )
 
         write({

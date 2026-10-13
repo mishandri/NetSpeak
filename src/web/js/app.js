@@ -518,6 +518,10 @@ function connect() {
     // Раньше здесь уходила ссылка /avatars/имя.png, а сервер ждал имя файла
     // и молча отбрасывал её — картинка не доходила ни при входе, ни позже.
     circle: state.profile.showCircle ? "1" : "0",
+    // свою версию сообщаем сами: так сервер знает, что к нему подключилось,
+    // и в настройках видно обе версии. Если открыли просто в браузере,
+    // версии нет — там и показывать нечего.
+    ...(state.version ? { cv: state.version } : {}),
   });
   const source = new EventSource(`/api/events?${q}`);
   state.source = source;
@@ -553,6 +557,10 @@ async function handle(msg) {
     case "welcome":
       learnPeople(msg.people);
       state.me = msg.you;
+      // Сервер знает, какая версия клиента к нему подключилась: он получил
+      // её при входе. Это надёжнее, чем брать из адреса, — адрес мог
+      // потеряться при переподключении, а тут версия приходит сама.
+      if (msg.you && msg.you.clientVersion) state.version = msg.you.clientVersion;
       state.channel = msg.you.channel;
       state.users = new Map(msg.users.map((u) => [u.id, u]));
       state.channels = msg.channels;
@@ -590,6 +598,7 @@ async function handle(msg) {
       const meNow = msg.users.find((u) => u.id === state.me.id);
       if (meNow) {
         state.me = meNow;
+        if (meNow.clientVersion) state.version = meNow.clientVersion;
         state.channel = meNow.channel;
       }
       applyChannels();
@@ -794,16 +803,34 @@ function paintMyAvatar() {
   renderUsers();
 }
 
-/** Версия в шапке настроек — чтобы сразу было видно, что запущено. */
+/**
+ * Обе версии в шапке настроек — прямо в строке, а не во всплывающей
+ * подсказке: подсказку надо догадаться открыть, а тут видно сразу.
+ *
+ * Показываем и клиента, и сервер. Именно потому, что страницу отдал
+ * сервер, чаще всего расходится одно из двух: старый сервер отдаёт
+ * старую страницу при новом клиенте — и человек гадает, почему правок
+ * не видно. Когда версии разошлись, подсвечиваем.
+ */
 function renderVersion() {
   const box = els.appVersion;
   if (!box) return;
-  const v = state.version || "";
-  box.textContent = v ? `v${v}` : "версия неизвестна";
-  box.title = v
-    ? `Клиент версии ${v}. Страницу отдал сервер${state.serverVersion
-        ? ` версии ${state.serverVersion}` : ""}.`
-    : "Страница открыта не через программу — своей версии у неё нет.";
+  const клиент = state.version || "";
+  const сервер = state.serverVersion || "";
+  const части = [];
+  if (клиент) части.push(`клиент ${клиент}`);
+  if (сервер) части.push(`сервер ${сервер}`);
+  if (!части.length) части.push("версия неизвестна");
+  box.textContent = части.join("  ·  ");
+  // разошлись — подсвечиваем, это почти всегда и есть причина проблемы
+  const разные = клиент && сервер && клиент !== сервер;
+  box.classList.toggle("modal__ver--stale", !!разные);
+  box.title = разные
+    ? "Версии разошлись. Страницу отдал сервер, поэтому он может быть "
+      + "старше клиента. Обновите NetSpeakServer.exe."
+    : клиент
+      ? `Клиент ${клиент}. Страницу отдал сервер ${сервер}.`
+      : "Страница открыта не через программу — своей версии у неё нет.";
 }
 
 function renderUsers() {
@@ -2226,6 +2253,8 @@ applyTheme(localStorage.getItem("ns.theme") ||
   (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
 // сперва узнаём, кто мы и с какого устройства, потом подтягиваем профиль
 // и настройки — и только после этого решаем: входить сразу или спросить
+// на всякий случай: если по какой-то причине сервер не сказал, берём
+// из адреса — запускающий код клиента кладёт туда свою версию
 state.version = clientVersionFromUrl();
 profileReady = initIdentity().then(loadFromServer).finally(() => {
   renderVersion();
