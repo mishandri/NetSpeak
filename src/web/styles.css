@@ -189,6 +189,19 @@ input[type="range"]::-moz-range-thumb {
   background: var(--panel-3); padding: 1px 5px; border-radius: 5px; font-size: 12px;
 }
 
+/* Версия в шапке настроек. Тот же вид, что у «ПРОФИЛЬ» и прочих
+   подзаголовков, только приглушённее: это справка, а не заголовок. */
+.modal__ver {
+  margin-left: 10px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: .75;
+  white-space: nowrap;
+}
+.modal__head h2 { margin-right: 2px; }
+
 /* Настройка с заголовком, галочкой и пояснением под ней: занимает
    меньше места, чем три отдельных поля, и читается как одно целое. */
 .field--tight { display: block; }

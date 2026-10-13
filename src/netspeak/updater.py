@@ -64,6 +64,12 @@ SERVER_CHECK_SECONDS = 24 * 3600
 #: подряд: за это время к GitHub не обратиться физически невозможно.
 CLIENT_CHECK_SECONDS = 120
 
+#: Как часто сервер заглядывает за релизом КЛИЕНТА — не ради себя, а
+#: чтобы сказать подключённым людям. Раз в час: объявление ничего не
+#: качает, это один лёгкий запрос, зато человек узнаёт об обновлении не
+#: дожидаясь своего следующего запуска.
+CLIENT_NOTICE_SECONDS = 3600
+
 #: Когда сервер перезапускается ради обновления.
 NIGHT_HOUR = 3
 
@@ -111,6 +117,11 @@ class UpdateState:
     from_version: str = ""
     to_version: str = ""
     release: dict = field(default_factory=dict)
+    # объявление для клиентов: какую версию мы уже сообщили и когда
+    # последний раз заглядывали. Файла тут нет и быть не должно: файл
+    # клиент качает сам, с GitHub.
+    notice_seen: float = 0.0
+    notice: dict = field(default_factory=dict)
 
     def to_json(self) -> dict:
         return {
@@ -119,6 +130,8 @@ class UpdateState:
             "fromVersion": self.from_version,
             "toVersion": self.to_version,
             "release": self.release,
+            "noticeSeen": round(self.notice_seen, 0),
+            "notice": self.notice,
         }
 
     @classmethod
@@ -131,6 +144,8 @@ class UpdateState:
             from_version=str(data.get("fromVersion") or ""),
             to_version=str(data.get("toVersion") or ""),
             release=data.get("release") or {},
+            notice_seen=float(data.get("noticeSeen") or 0),
+            notice=data.get("notice") or {},
         )
 
 
@@ -421,6 +436,7 @@ class UpdateWatcher:
         self.state.downloaded = ""
         self._save()
 
+    # ── объявление клиентам ──────────────────────────────────────────────
     # ── цикл ─────────────────────────────────────────────────────────────
     def interval(self) -> int:
         """Свой шаг проверки: у клиента и у сервера он разный."""

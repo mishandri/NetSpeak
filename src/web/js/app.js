@@ -24,6 +24,7 @@ const els = {
   voiceWarnText: $("voiceWarnText"), voiceWarnFix: $("voiceWarnFix"),
   voiceWarnClose: $("voiceWarnClose"),
   btnSoundCheck: $("btnSoundCheck"), soundCheckOut: $("soundCheckOut"),
+  appVersion: $("appVersion"),
   membersList: $("membersList"), membersCount: $("membersCount"),
   micBtn: $("micBtn"), micLabel: $("micLabel"), deafenBtn: $("deafenBtn"),
   leaveBtn: $("leaveBtn"), pttHint: $("pttHint"),
@@ -212,6 +213,10 @@ const state = {
   // люди, которые бывали на сервере: uid → {name, avatar}. Отсюда берутся
   // чужие аватары и имена, в том числе у тех, кто сейчас не в сети
   people: new Map(),
+  // версия клиента (из адреса) и версия сервера (из /api/info).
+  // Разные вещи: страницу-то отдал сервер, а человек открыл клиент
+  version: "",
+  serverVersion: "",
   me: null,
   channel: null,
   maxUsers: 8,
@@ -462,6 +467,7 @@ function send(payload) {
 async function loadInfo() {
   const info = await api("/api/info");
   learnPeople(info.people);
+  if (info.version) state.serverVersion = info.version;
   state.channels = info.channels;
   state.maxUsers = info.maxUsers ?? 8;
   els.serverName.textContent = info.server;
@@ -599,6 +605,9 @@ async function handle(msg) {
     case "signal":
       voice.handleSignal(msg.from, msg.data);
       break;
+    case "update-available":
+      showUpdateNotice(msg);
+      break;
   }
 }
 
@@ -691,6 +700,22 @@ async function pingLoop() {
 
 /* ─────────────────── каналы ─────────────────── */
 
+/**
+ * Версия, которую мы сами передали при открытии окна.
+ *
+ * Страницу отдаёт сервер, а человек открыл клиент — показывать надо версию
+ * клиента, а не сервера. Поэтому запускающий код кладёт свою версию в
+ * адрес, и мы берём её оттуда. Дописывать номер в разметку не нужно: он
+ * всегда из кода, потому что иначе и не узнать, что запущено.
+ */
+function clientVersionFromUrl() {
+  try {
+    return new URLSearchParams(location.search).get("cv") || "";
+  } catch {
+    return "";
+  }
+}
+
 /** Запоминаем профили людей с сервера: по uid узнаём, чей это аватар. */
 function learnPeople(list) {
   if (!Array.isArray(list)) return;
@@ -767,6 +792,18 @@ function paintMyAvatar() {
   if (els.app.hidden) return;
   updateTiles();
   renderUsers();
+}
+
+/** Версия в шапке настроек — чтобы сразу было видно, что запущено. */
+function renderVersion() {
+  const box = els.appVersion;
+  if (!box) return;
+  const v = state.version || "";
+  box.textContent = v ? `v${v}` : "версия неизвестна";
+  box.title = v
+    ? `Клиент версии ${v}. Страницу отдал сервер${state.serverVersion
+        ? ` версии ${state.serverVersion}` : ""}.`
+    : "Страница открыта не через программу — своей версии у неё нет.";
 }
 
 function renderUsers() {
@@ -1479,6 +1516,49 @@ function avatarFor(m, cls = "avatar avatar--sm") {
   return avatarMarkup({ name: m.name, color: m.color, avatar: "" }, cls);
 }
 
+/* ─────────────────── объявление об обновлении ─────────────────── */
+
+/**
+ * Сервер сказал, что вышел свежий клиент.
+ *
+ * Объявление приходит всем подряд, и это нормально: сервер не знает, у кого
+ * какая версия. Показываем только тем, кому это ещё нужно, — остальным
+ * показывать нечего, только засорять.
+ *
+ * Сам файл программа по-прежнему качает сама, с GitHub, как и раньше.
+ * Объявление нужно затем, чтобы человек узнал заранее и перезапустился,
+ * а не обнаружил новое версию по смене вида окна.
+ */
+function showUpdateNotice(msg) {
+  const версия = String(msg?.version || "");
+  if (!версия) return;
+  if (!isNewer(версия, state.version)) {
+    return;                       // уже стоит такая или свежее
+  }
+  const было = sessionStorage.getItem("ns.notified");
+  if (было === версия) return;     // не повторять одно и то же
+  sessionStorage.setItem("ns.notified", версия);
+  toast(`Вышла версия ${версия}. Перезапустите программу — обновится сама.`,
+        "", 15000);
+}
+
+/** «1.10.0» против «1.9.9» — сравниваем по частям, а не как строки. */
+function isNewer(что, чем) {
+  const a = parseVersion(что);
+  const b = parseVersion(чем);
+  if (!a) return false;
+  if (!b) return true;             // своей версии не знаем — покажем
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return false;
+}
+
+function parseVersion(text) {
+  const m = String(text || "").match(/(\d+)\.(\d+)\.(\d+)/);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+
 /* ─────────────────── проверка звука ─────────────────── */
 
 /**
@@ -1837,6 +1917,7 @@ els.leveling.oninput = () => {
 
 async function openSettings() {
   els.settingsModal.hidden = false;
+  renderVersion();;
   refreshProfileUi(); // сначала подтягиваем актуальный профиль
   els.modeSegment.querySelectorAll(".seg").forEach((s) =>
     s.classList.toggle("is-active", s.dataset.mode === state.settings.mode));
@@ -2122,12 +2203,19 @@ function linkify(text) {
 // var, а не let: функцию toast() дёргают раньше, чем выполняется этот блок,
 // и let дал бы ошибку «Cannot access before initialization»
 var toastTimer;
-function toast(text, kind = "") {
+/**
+ * Показать плашку внизу.
+ *
+ * ms — сколько держать. По умолчанию 3,2 секунды: на обычные сообщения
+ * хватает, а объявление об обновлении надо успеть прочитать, поэтому у
+ * него свой, более долгий срок.
+ */
+function toast(text, kind = "", ms = 3200) {
   els.toast.textContent = text;
   els.toast.className = "toast " + kind;
   els.toast.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (els.toast.hidden = true), 3200);
+  toastTimer = setTimeout(() => (els.toast.hidden = true), ms);
 }
 
 /* ─────────────────── старт ─────────────────── */
@@ -2138,7 +2226,9 @@ applyTheme(localStorage.getItem("ns.theme") ||
   (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
 // сперва узнаём, кто мы и с какого устройства, потом подтягиваем профиль
 // и настройки — и только после этого решаем: входить сразу или спросить
+state.version = clientVersionFromUrl();
 profileReady = initIdentity().then(loadFromServer).finally(() => {
+  renderVersion();
   if (state.profile.name) els.loginName.value = state.profile.name;
   refreshProfileUi();
   tryAutoLogin();
@@ -2165,4 +2255,4 @@ loadInfo();
 setInterval(() => { if (els.app.hidden) loadInfo(); }, 5000);
 
 // точка входа для отладки: в консоли браузера доступно netspeak.voice.peers
-window.netspeak = { state, voice, device, initIdentity };
+window.netspeak = { state, voice, device, initIdentity, showUpdateNotice };

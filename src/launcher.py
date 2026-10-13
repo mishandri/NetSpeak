@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -77,6 +78,18 @@ def loopback_port(secure_port: int) -> int:
     соединение обрывается пустым ответом.
     """
     return max(1, int(secure_port) - 1)
+
+
+def with_version(url: str) -> str:
+    """Дописать к адресу версию клиента.
+
+    Страница читает её из адреса и показывает в настройках. Заодно это
+    верный признак: если в настройках пусто или стоит чужое число, значит
+    страницу отдал старый сервер.
+    """
+    base = (url or "").rstrip("/")
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}cv={urllib.parse.quote(__version__)}"
 
 
 def app_url(host: str, port: int) -> str:
@@ -237,6 +250,12 @@ class ClientApi:
         if _is_own_machine(host) and not local_serves_app(port):
             note(f"локальный адрес {url} не отдаёт приложение")
             return False
+
+        # Версию клиента передаём странице в адресе. Страницу отдаёт сервер,
+        # и без этой подсказки она показала бы свою версию — а человек на
+        # клиенте должен видеть версию того, чем он пользуется. Дописывать
+        # версию руками нигде не нужно: она и так берётся отсюда, из кода.
+        url = with_version(url)
 
         if in_browser:
             webbrowser.open(url + "/")

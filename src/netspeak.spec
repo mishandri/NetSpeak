@@ -31,6 +31,11 @@ SRC = HERE
 ENTRY = os.environ.get("NETSPEAK_ENTRY", "launcher.py")
 NAME = os.environ.get("NETSPEAK_NAME", "NetSpeak")
 ICON = os.environ.get("NETSPEAK_ICON", "icon.ico")
+# Файл описания версии для свойств exe. build.py готовит его на основе
+# __version__, так что подняли версию в исходнике — поправились свойства.
+VERSION_FILE = os.environ.get("NETSPEAK_VERSION_FILE") or None
+if VERSION_FILE and not os.path.isfile(VERSION_FILE):
+    VERSION_FILE = None
 
 datas = [
     (str(SRC / "web"), "web"),               # интерфейс приложения
@@ -105,4 +110,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(SRC / "web" / ICON) if (SRC / "web" / ICON).is_file() else None,
+    version=VERSION_FILE,
 )

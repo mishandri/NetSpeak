@@ -48,9 +48,11 @@ ROOT = Path(__file__).resolve().parent
 # живут рядом с exe (в собранном виде) или в корне репозитория (из исходников).
 sys.path.insert(0, str(ROOT))
 try:
+    from netspeak import __version__
     from netspeak import db as nsdb
     from netspeak import device as nsdevice
     from netspeak import history as nshistory
+    from netspeak import updater as nsupdater
     from netspeak import netinfo, paths as nspaths, profile
 except ImportError:  # запуск из постороннего места — работаем на папку сервера
     nspaths = None
@@ -59,6 +61,8 @@ except ImportError:  # запуск из постороннего места —
     nshistory = None
     nsdb = None
     nsdevice = None
+    nsupdater = None
+    __version__ = "?"
 
 if nspaths:
     nspaths.ensure_dirs()
@@ -973,6 +977,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({
                 "server": SERVER_NAME,
                 "requiresPassword": bool(PASSWORD),
+                # версия сервера: страница показывает её рядом с версией
+                # клиента, и сразу видно, чья это сборка и не устарела ли
+                "version": __version__,
                 "channels": HUB.public_channels(),
                 "people": HUB.known_profiles(),
                 "addresses": addresses(self.server.server_address[1]),
@@ -1196,6 +1203,38 @@ def addresses(port: int, secure: bool = False) -> list[str]:
     return [f"{scheme}://{ip}:{port}" for ip in ips]
 
 
+def announce_client_updates() -> None:
+    """Раз в час говорить участникам, что вышел свежий клиент.
+
+    Объявление и только объявление. Файла здесь нет и быть не должно:
+    участники обновляются сами, с GitHub. Иначе сервер стал бы тем, кто
+    раздаёт exe, — а на этой сети сервер может поднять кто угодно, и
+    раздавать ему файлы было бы худшей идеей на свете.
+
+    Говорим один раз на релиз: повторять то же самое раз в час незачем,
+    люди от этого только закаляются. А кто уже на этой версии, тот
+    получит объявление молча и ничего не сделает — сравнивать умеет сам
+    клиент.
+    """
+    if nsupdater is None:
+        return
+    told = ""          # какой тег уже объявляли
+    while True:
+        try:
+            rel = nsupdater.latest("client")
+            if rel is not None and rel.tag != told:
+                told = rel.tag
+                HUB.broadcast({
+                    "e": "update-available",
+                    "version": rel.version,
+                    "tag": rel.tag,
+                    "url": rel.url,
+                })
+        except Exception:
+            pass          # неудачный запрос — не повод замолчать навсегда
+        time.sleep(nsupdater.CLIENT_NOTICE_SECONDS)
+
+
 def cleanup_files():
     while True:
         time.sleep(3600)
@@ -1367,6 +1406,10 @@ class RedirectHandler(Handler):
 def start(port: int):
     FILES.mkdir(parents=True, exist_ok=True)
     threading.Thread(target=cleanup_files, daemon=True).start()
+    # объявляем участникам о новых версиях клиента; сначала не сразу,
+    # чтобы не мешать запуску сервера
+    threading.Thread(target=lambda: (time.sleep(20), announce_client_updates()),
+                     daemon=True).start()
     threading.Thread(target=reaper, daemon=True).start()
 
     # Переписка из прошлых запусков. Подрезаем старое и возвращаем в журнал:
