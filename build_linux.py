@@ -52,41 +52,46 @@ IMPORTS = {
     "gi": "gi",
 }
 
-#: Что нужно системе, чтобы вообще появилось окно.
-#:
-#: Разделено на две части, и разница принципиальная:
-#:
-#:   ДЛЯ СБОРКИ — нужно один раз, на машине, где собираем. Без них
-#:   PyInstaller не найдёт мост между Python и GTK и не упакует его:
-#:   пользователь как раз получил бинарник, который падал с
-#:   «No module named 'gi'».
-#:
-#:   ДЛЯ РАБОТЫ — нужно тому, кто запускает готовый файл. Это gtk,
-#:   webkit и их описания: настоящий оконный движок внутрь чата не
-#:   положишь.
-#:
-#: Имена webkit и libsoup различаются между Ubuntu: на 22.04 это версии
-#: 4.0 и 2.4, на 24.04 — 4.1 и 3.0. Скрипт сборки не угадывает, а
-#: просит поставить оба: лишнее apt не считает ошибкой, а отсутствие
-#: нужного ловится на первой же попытке открыть окно.
+#: Ядро того, что нужно системе, чтобы вообще появилось окно. Нужно и
+#: на машине сборки — без моста PyInstaller не упакует gi: как раз из-за
+#: этого человек получил бинарник, падающий с «No module named 'gi'».
 SYSTEM_PACKAGES_BUILD = (
     "python3-pip",                    # ставить PyInstaller
     "python3-gi",                     # МОСТ между Python и GTK. Не pip!
     "python3-gi-cairo",
     "gir1.2-gtk-3.0",                 # описание GTK для моста
-    "gir1.2-webkit2-4.0",             # описание движка страницы (22.04)
-    "gir1.2-webkit2-4.1",             # то же для 24.04 и новее
-    "gir1.2-soup-2.4",                # сеть, нужна webkit (22.04)
-    "gir1.2-soup-3.0",                # то же для 24.04 и новее
     "libgtk-3-0",
-    "libwebkit2gtk-4.0-37",           # движок страницы (22.04)
-    "libwebkit2gtk-4.1-0",            # то же для 24.04 и новее
     "patchelf",                       # PyInstaller чинит импорты в файле
 )
 
-#: Значок в трее — по желанию: без него программа работает, но закрывать
-#: окно придётся завершая процесс.
-SYSTEM_PACKAGES_OPTIONAL = ("libayatana-appindicator3-1",)
+#: Движок страницы. Имена различаются между Ubuntu: на 22.04 это версии
+#: 4.0 и 2.4, на 23.04 и новее — 4.1 и 3.0. Чужого имени в apt нет:
+#: попросишь оба — установка свалится целиком, поэтому версию выбирает
+#: webkit_variant().
+WEBKIT_22 = ("gir1.2-webkit2-4.0", "gir1.2-soup-2.4", "libwebkit2gtk-4.0-37")
+WEBKIT_24 = ("gir1.2-webkit2-4.1", "gir1.2-soup-3.0", "libwebkit2gtk-4.1-0")
+
+#: Значок в трее — по желанию: без него программа работает как обычно,
+#: просто значка у часов нет. Нужно именно описание индикатора (gir1.2-):
+#: pystray спрашивает у системы его, а не саму библиотеку, — библиотека
+#: приедет с описанием сама.
+SYSTEM_PACKAGES_OPTIONAL = ("gir1.2-ayatanaappindicator3-1",)
+
+
+def webkit_variant() -> tuple[str, ...]:
+    """Пакеты движка страницы под эту Ubuntu — см. WEBKIT_22/WEBKIT_24."""
+    try:
+        текст = Path("/etc/os-release").read_text(encoding="utf-8")
+        m = re.search(r"VERSION_ID=(\d+)", текст)
+    except OSError:
+        m = None
+    if m and int(m.group(1)) <= 22:
+        return WEBKIT_22
+    if m:
+        return WEBKIT_24
+    # не Ubuntu или файл не прочёлся: перечисляем оба набора — пусть
+    # предупреждение будет шумным, но не молча-неполным
+    return WEBKIT_22 + WEBKIT_24
 
 
 def app_version() -> str:
@@ -122,8 +127,7 @@ def check_gi() -> bool:
     print("    ModuleNotFoundError: No module named 'gi'")
     print()
     print("Мост ставится системой, через pip он не устанавливается:")
-    print("    sudo apt install python3-gi python3-gi-cairo "
-          "gir1.2-gtk-3.0 gir1.2-webkit2-4.1")
+    print("    sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0")
     print()
     print("И собирать надо тем же Python, под который он собран:")
     print("    python3 -m venv --system-site-packages .venv")
@@ -151,7 +155,7 @@ def check_deps() -> bool:
         if "gi" in missing:
             print("\nА мост между Python и GTK ставится системой:")
             print("    sudo apt install python3-gi python3-gi-cairo "
-                  "gir1.2-gtk-3.0 gir1.2-webkit2-4.1")
+                  "gir1.2-gtk-3.0")
         return False
 
     if sys.platform != "linux":
@@ -174,9 +178,8 @@ def check_system() -> list[str]:
         части = строка.split()
         if len(части) >= 4 and части[-1] == "installed":
             установлены.add(части[0])
-    # имена пакетов в Ubuntu 22.04 и 24.04 различаются (webkit 4.0 против
-    # 4.1), поэтому отсутствие половины списка — это норма, а не беда
-    return [имя for имя in SYSTEM_PACKAGES_BUILD if имя not in установлены]
+    нужные = SYSTEM_PACKAGES_BUILD + webkit_variant()
+    return [имя for имя in нужные if имя not in установлены]
 
 
 def size_mb(path: Path) -> float:
@@ -255,6 +258,20 @@ def main() -> int:
             print(f"    — {имя}")
         print("\n  sudo apt-get install -y " + " ".join(нет_пакетов))
         print("Без них программа соберётся, но окно может не появиться.\n")
+
+    # Значок в трее — по желанию, и его отсутствие сборке не мешает:
+    # описание индикатора нужно тому, кто запускает готовый файл.
+    try:
+        import gi
+        gi.require_version("AyatanaAppIndicator3", "0.1")
+        есть_трей = True
+    except Exception:
+        есть_трей = False
+    if not есть_трей:
+        print("\nЗначка в трее не будет: в системе нет описания индикатора.")
+        print("Программа работает и без него — окно, сворачивание и закрытие")
+        print("как обычно, просто значка у часов нет. Если он нужен:")
+        print("    sudo apt-get install -y " + " ".join(SYSTEM_PACKAGES_OPTIONAL))
 
     BIN.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(BUILD, ignore_errors=True)

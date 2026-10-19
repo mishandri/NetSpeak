@@ -30,7 +30,13 @@ except ImportError:  # без него просто не будет значка
 
 try:
     import pystray
-except ImportError:
+except Exception:
+    # Не только ImportError: pystray при импорте сам подбирает бэкенд, и
+    # на Linux без описаний индикатора из него вылетает ValueError
+    # («Namespace AyatanaAppIndicator3 not available») — его pystray не
+    # ловит, и через наш except ImportError он проходил насквозь, роняя
+    # программу целиком ещё до первого окна, у клиента и у сервера.
+    # Значок в трее необязателен, поэтому глотаем всё.
     pystray = None
 
 
@@ -137,9 +143,14 @@ class WindowKeeper:
         self.window.events.closing += self._on_closing
 
     def _on_minimized(self):
-        # событие приходит из отдельного потока, но скрыть окно можно:
-        # внутри pywebview используется Invoke, он переходит в поток интерфейса
-        self.hide()
+        # Прятать окно можно только там, где значок есть: без него
+        # спрятанное окно не достать никак — ни из трея, ни откуда.
+        # Без значка «_» остаётся обычным сворачиванием на панель задач.
+        if self._icon is not None:
+            # событие приходит из отдельного потока, но скрыть окно можно:
+            # внутри pywebview используется Invoke, он переходит в поток
+            # интерфейса
+            self.hide()
 
     def _on_closing(self):
         if self.quitting:
@@ -163,18 +174,32 @@ class WindowKeeper:
         image = tray_image(variant=self.variant)
         if image is None:
             return None
-        self._icon = pystray.Icon(
-            "NetSpeak", image, APP_NAME,
-            menu=pystray.Menu(
-                pystray.MenuItem("Показать окно", lambda *_: self.show(), default=True),
-                pystray.MenuItem("Открыть в браузере", lambda *_: self.open_browser()),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem("Выход", lambda *_: self.quit()),
-            ),
-        )
+        try:
+            self._icon = pystray.Icon(
+                "NetSpeak", image, APP_NAME,
+                menu=pystray.Menu(
+                    pystray.MenuItem("Показать окно", lambda *_: self.show(), default=True),
+                    pystray.MenuItem("Открыть в браузере", lambda *_: self.open_browser()),
+                    pystray.Menu.SEPARATOR,
+                    pystray.MenuItem("Выход", lambda *_: self.quit()),
+                ),
+            )
+        except Exception:
+            # значок мог не собраться даже при живом pystray: в среде нет
+            # области уведомлений или индикатор сломан. Окно важнее.
+            self._icon = None
+            return None
         # Значок крутится в отдельном потоке: на главном он заморозил бы окно
-        threading.Thread(target=self._icon.run, daemon=True).start()
+        threading.Thread(target=self._run_icon, daemon=True).start()
         return self._icon
+
+    def _run_icon(self):
+        try:
+            self._icon.run()
+        except Exception:
+            # индикатор мог отвалиться уже после запуска. Тихо гасим:
+            # трей — вежливость, а не жизненно важная часть.
+            self._icon = None
 
     def stop_tray(self):
         if self._icon is not None:

@@ -79,15 +79,19 @@ ModuleNotFoundError: No module named 'gi'
 и выглядело это так: папки создались — и ничего не произошло.
 
 ```bash
-# 1. Мост и окно. Имена webkit различаются между 22.04 и 24.04,
-#    поэтому ставим оба: лишнее apt ошибкой не считает.
+# 1. Мост и окно. Имена webkit различаются между 22.04 и 24.04, а
+#    чужого имени apt не знает: попросишь оба — установка свалится
+#    целиком. Поэтому каждая версия ставится отдельно, и не нашедшаяся
+#    просто пропускается.
 sudo apt-get update
 sudo apt-get install -y \
-  python3-pip python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-  gir1.2-webkit2-4.0 gir1.2-webkit2-4.1 \
-  gir1.2-soup-2.4 gir1.2-soup-3.0 \
-  libgtk-3-0 libwebkit2gtk-4.0-37 libwebkit2gtk-4.1-0 \
-  libayatana-appindicator3-1 patchelf
+  python3-pip python3-gi python3-gi-cairo gir1.2-gtk-3.0 libgtk-3-0 patchelf
+sudo apt-get install -y gir1.2-webkit2-4.0 gir1.2-soup-2.4 \
+  libwebkit2gtk-4.0-37 || true
+sudo apt-get install -y gir1.2-webkit2-4.1 gir1.2-soup-3.0 \
+  libwebkit2gtk-4.1-0 || true
+# значок в трее — по желанию: без него программа работает как обычно
+sudo apt-get install -y gir1.2-ayatanaappindicator3-1 || true
 
 # 2. Проверить, что мост на месте. Не напечаталась версия — пакета нет.
 python3 -c "import gi; gi.require_version('Gtk','3.0'); print(gi.__version__)"

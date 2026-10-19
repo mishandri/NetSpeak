@@ -52,19 +52,26 @@ sudo apt-get install libwebkit2gtk-4.1-0
 lsb_release -a
 ```
 
-Если ставите значок в трее — ещё один пакет. Без него программа
-работает, но закрывать окно придётся завершая процесс:
+Значок в трее — по желанию. Без него программа работает как обычно:
+окно открывается, «—» сворачивает на панель задач, закрытие работает.
+Просто значка у часов не будет. Если он нужен:
 
 ```bash
-sudo apt-get install libayatana-appindicator3-1
+sudo apt-get install -y gir1.2-ayatanaappindicator3-1
 ```
 
-Полным списком, с проверкой:
+Здесь нужно именно описание индикатора для моста (`gir1.2-`), а не сама
+библиотека: значок спрашивает у системы его, библиотека приедет с
+описанием сама.
+
+Полным списком, с проверкой (на 22.04 движок называется
+`libwebkit2gtk-4.0-37` — см. выше):
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-                        libwebkit2gtk-4.1-0 libayatana-appindicator3-1
+                        libwebkit2gtk-4.1-0 \
+                        gir1.2-ayatanaappindicator3-1
 dpkg -l libgtk-3-0 | grep '^ii'
 ```
 
