@@ -40,6 +40,45 @@ except Exception:
     pystray = None
 
 
+def _give_tray_its_own_context() -> None:
+    """Трею — собственный GLib-контекст, иначе он ссорится с окном.
+
+    pystray заводит свой цикл на контексте по умолчанию: в его GtkIcon._run
+    стоит GLib.MainLoop.new(None, ...). А окно на Linux работает через
+    Gtk.Application, которому нужен тот же контекст по умолчанию, но на
+    главном потоке. Кто первый успел, тот и прав: успел значок — окно
+    умирало с «g_application_run() cannot acquire the default main
+    context», успевало окно — не заводился значок. Разводим их по разным
+    контекстам: окну остаётся контекст по умолчанию, значку выдаём
+    собственный.
+
+    Тело ниже повторяет pystray один в один, отличаясь только контекстом;
+    pystray закреплён за 0.19, так что тело не уплывёт.
+    """
+    try:
+        from gi.repository import GLib
+        gtk_icon = pystray._util.gtk.GtkIcon
+    except Exception:
+        return  # моста нет — значок и так не заведётся
+
+    def _run(self):
+        self._loop = GLib.MainLoop.new(GLib.MainContext.new(), False)
+        self._initialize()
+        try:
+            self._loop.run()
+        except Exception:
+            self._log.error(
+                "An error occurred in the main loop", exc_info=True)
+        finally:
+            self._finalize()
+
+    gtk_icon._run = _run
+
+
+if pystray is not None and sys.platform.startswith("linux"):
+    _give_tray_its_own_context()
+
+
 # ────────────────────────────── значок ────────────────────────────────────
 
 def icon_path(variant: str = "") -> str:
