@@ -37,6 +37,12 @@ datas = [
     (str(SRC / "launcher_ui"), "launcher_ui"),  # окна сервера и подключения
 ]
 
+#: Мост между Python и GTK. Ставится системой в эту папку, а обычная
+#: сборка её не видит — отсюда был «No module named 'gi'» в готовом
+#: файле. Сама папка на месте не нужна: PyInstaller заберёт оттуда модуль
+#: и положит внутрь.
+DIST_PACKAGES = "/usr/lib/python3/dist-packages"
+
 hiddenimports = [
     "server",       # запускается как server.main() внутри файла
     "netspeak",
@@ -45,6 +51,15 @@ hiddenimports = [
     "PIL", "PIL.Image",
     "pystray",
     "webview",
+    # Мост Python ↔ GTK. Без него pywebview на Linux не знает, чем
+    # нарисовать окно, и падает с «No module named 'gi'».
+    "gi",
+    "gi.repository",
+    "gi.repository.Gtk",
+    "gi.repository.Gdk",
+    "gi.repository.Gio",
+    "gi.repository.GLib",
+    "gi.repository.WebKit2",
 ]
 hiddenimports += collect_submodules("netspeak")
 hiddenimports += collect_submodules("webview")
@@ -56,7 +71,7 @@ if sys.platform == "win32":
 
 a = Analysis(
     [str(SRC / ENTRY)],
-    pathex=[str(SRC)],
+    pathex=[str(SRC), DIST_PACKAGES],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,

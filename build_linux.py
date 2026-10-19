@@ -42,24 +42,51 @@ TARGETS = [
 
 #: Что нужно для сборки. В готовой программе этого нет: Python и все
 #: пакеты уезжают внутрь файла, ставить получателю не приходится.
-REQUIRED = ["PyInstaller", "webview", "pystray", "PIL"]
+REQUIRED = ["PyInstaller", "webview", "pystray", "PIL", "gi"]
 
 IMPORTS = {
     "PyInstaller": "PyInstaller",
     "webview": "webview",
     "pystray": "pystray",
     "PIL": "PIL.Image",
+    "gi": "gi",
 }
 
-#: Системные пакеты, без которых окно не появится. pywebview на Linux
-#: рисует окно через GTK, а страницу показывает WebKit2 — это две разные
-#: библиотеки, и они не входят в стандартную поставку.
-SYSTEM_PACKAGES = (
-    "libgtk-3-0",             # окно
-    "libwebkit2gtk-4.1-0",    # движок страницы, тот же, что в Windows WebView2
-    "libayatana-appindicator3-1",   # значок в трее; без него трей просто не будет
-    "patchelf",               # PyInstaller чинит импорты в собранном файле
+#: Что нужно системе, чтобы вообще появилось окно.
+#:
+#: Разделено на две части, и разница принципиальная:
+#:
+#:   ДЛЯ СБОРКИ — нужно один раз, на машине, где собираем. Без них
+#:   PyInstaller не найдёт мост между Python и GTK и не упакует его:
+#:   пользователь как раз получил бинарник, который падал с
+#:   «No module named 'gi'».
+#:
+#:   ДЛЯ РАБОТЫ — нужно тому, кто запускает готовый файл. Это gtk,
+#:   webkit и их описания: настоящий оконный движок внутрь чата не
+#:   положишь.
+#:
+#: Имена webkit и libsoup различаются между Ubuntu: на 22.04 это версии
+#: 4.0 и 2.4, на 24.04 — 4.1 и 3.0. Скрипт сборки не угадывает, а
+#: просит поставить оба: лишнее apt не считает ошибкой, а отсутствие
+#: нужного ловится на первой же попытке открыть окно.
+SYSTEM_PACKAGES_BUILD = (
+    "python3-pip",                    # ставить PyInstaller
+    "python3-gi",                     # МОСТ между Python и GTK. Не pip!
+    "python3-gi-cairo",
+    "gir1.2-gtk-3.0",                 # описание GTK для моста
+    "gir1.2-webkit2-4.0",             # описание движка страницы (22.04)
+    "gir1.2-webkit2-4.1",             # то же для 24.04 и новее
+    "gir1.2-soup-2.4",                # сеть, нужна webkit (22.04)
+    "gir1.2-soup-3.0",                # то же для 24.04 и новее
+    "libgtk-3-0",
+    "libwebkit2gtk-4.0-37",           # движок страницы (22.04)
+    "libwebkit2gtk-4.1-0",            # то же для 24.04 и новее
+    "patchelf",                       # PyInstaller чинит импорты в файле
 )
+
+#: Значок в трее — по желанию: без него программа работает, но закрывать
+#: окно придётся завершая процесс.
+SYSTEM_PACKAGES_OPTIONAL = ("libayatana-appindicator3-1",)
 
 
 def app_version() -> str:
@@ -77,14 +104,54 @@ def missing_packages() -> list[str]:
     return [n for n in REQUIRED if importlib.util.find_spec(IMPORTS[n]) is None]
 
 
+def check_gi() -> bool:
+    """Есть ли мост между Python и GTK.
+
+    Без него окно не откроется ни при каких настройках: pywebview на
+    Linux смотрит только в GTK и Qt, а мост между ними ставится
+    системой, а не через pip. Собрать бинарник можно и без него — он
+    получится, но при запуске упадёт с «No module named 'gi'», и
+    человек не поймёт почему.
+    """
+    import importlib.util
+    if importlib.util.find_spec("gi") is not None:
+        return True
+
+    print("Нет моста между Python и GTK (модуль gi).")
+    print("Без него окно не откроется, а готовый файл упадёт с:")
+    print("    ModuleNotFoundError: No module named 'gi'")
+    print()
+    print("Мост ставится системой, через pip он не устанавливается:")
+    print("    sudo apt install python3-gi python3-gi-cairo "
+          "gir1.2-gtk-3.0 gir1.2-webkit2-4.1")
+    print()
+    print("И собирать надо тем же Python, под который он собран:")
+    print("    python3 -m venv --system-site-packages .venv")
+    print("    source .venv/bin/activate")
+    print("    pip install -r requirements-linux.txt")
+    print()
+    print("Обычным venv модуль не виден: он лежит в системной папке,")
+    print("и именно поэтому простая сборка даёт бинарник без окна.")
+    return False
+
+
 def check_deps() -> bool:
     missing = missing_packages()
     if missing:
         print("Для сборки не хватает пакетов:")
         for name in missing:
             print(f"    — {name}")
-        print("\nУстановите их одной командой:")
-        print("    python -m pip install " + " ".join(missing))
+        if "gi" in missing:
+            print()
+            print("gi ставится не через pip, а системой — см. ниже.")
+        через_пип = [m for m in missing if m != "gi"]
+        if через_пип:
+            print("\nУстановите их одной командой:")
+            print("    python -m pip install " + " ".join(через_пип))
+        if "gi" in missing:
+            print("\nА мост между Python и GTK ставится системой:")
+            print("    sudo apt install python3-gi python3-gi-cairo "
+                  "gir1.2-gtk-3.0 gir1.2-webkit2-4.1")
         return False
 
     if sys.platform != "linux":
@@ -92,7 +159,8 @@ def check_deps() -> bool:
               f"{sys.platform}.")
         print("Собирать надо на Linux: PyInstaller не делает Linux из других систем.")
         return False
-    return True
+
+    return check_gi()
 
 
 def check_system() -> list[str]:
@@ -106,7 +174,9 @@ def check_system() -> list[str]:
         части = строка.split()
         if len(части) >= 4 and части[-1] == "installed":
             установлены.add(части[0])
-    return [p for p in SYSTEM_PACKAGES if p not in установлены]
+    # имена пакетов в Ubuntu 22.04 и 24.04 различаются (webkit 4.0 против
+    # 4.1), поэтому отсутствие половины списка — это норма, а не беда
+    return [имя for имя in SYSTEM_PACKAGES_BUILD if имя not in установлены]
 
 
 def size_mb(path: Path) -> float:

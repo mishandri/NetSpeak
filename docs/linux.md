@@ -66,6 +66,70 @@
 
 ---
 
+## Как собрать у себя на Ubuntu
+
+Собирать надо **системным Python**, иначе мост между Python и GTK
+останется не там, где его ищет сборка. Проверено на себе: бинарник,
+собранный обычным venv, падал при запуске с
+
+```
+ModuleNotFoundError: No module named 'gi'
+```
+
+и выглядело это так: папки создались — и ничего не произошло.
+
+```bash
+# 1. Мост и окно. Имена webkit различаются между 22.04 и 24.04,
+#    поэтому ставим оба: лишнее apt ошибкой не считает.
+sudo apt-get update
+sudo apt-get install -y \
+  python3-pip python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+  gir1.2-webkit2-4.0 gir1.2-webkit2-4.1 \
+  gir1.2-soup-2.4 gir1.2-soup-3.0 \
+  libgtk-3-0 libwebkit2gtk-4.0-37 libwebkit2gtk-4.1-0 \
+  libayatana-appindicator3-1 patchelf
+
+# 2. Проверить, что мост на месте. Не напечаталась версия — пакета нет.
+python3 -c "import gi; gi.require_version('Gtk','3.0'); print(gi.__version__)"
+
+# 3. Исходники
+git clone -b linux https://github.com/mishandri/NetSpeak.git
+cd NetSpeak
+
+# 4. Окружение С доступом к системным пакетам. Простое venv не подойдёт:
+#    gi лежит в /usr/lib/python3/dist-packages и в него не попадёт.
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+pip install -r requirements-linux.txt
+
+# 5. Собрать
+python build_linux.py
+```
+
+### Что сделано, чтобы это не повторилось
+
+- `build_linux.py` проверяет `gi` **до** сборки и, если его нет,
+  объясняет, что ставить и почему через `pip` не выйдет. Раньше
+  проверок не было, и сборка «успешно» проходила, выдавая файл,
+  падающий при запуске.
+- `src/netspeak-linux.spec` говорит PyInstaller искать `gi` в
+  `/usr/lib/python3/dist-packages` и явно перечисляет `gi.repository.*`.
+- Файл сборки на серверах GitHub больше не ставит Python из своего
+  запаса: именно из-за этого `gi` и не попадал внутрь.
+
+### Чего сборка не может
+
+Полностью переносимого файла на Linux не выйдет. Внутрь уезжает всё
+приложение и сам Python, но настоящий оконный движок — GTK, WebKit2 и
+мост к ним — остаётся в системе. Причина не в NetSpeak, а в Linux:
+подсистема окон — часть операционной системы, и это так у всех
+программ с окнами, а не только у этой.
+
+Отдельно: файл, собранный на Ubuntu 22.04, требует не более старой
+glibc, чем там. Собранный на 24.04 на 22.04 не запустится.
+
+---
+
 ## Осталось
 
 ### 1. Собрать и запустить вживую

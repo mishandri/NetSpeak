@@ -123,7 +123,10 @@ def note(text: str) -> None:
         paths.logs_dir().mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y-%m-%d %H:%M:%S")
         with open(paths.logs_dir() / "launcher.log", "a", encoding="utf-8") as fh:
-            fh.write(f"{stamp}  {stamp[-8:]} {text}\n")
+            # время печаталось дважды подряд: целиком и ещё раз последние
+            # восемь символов. В журнале, который читают при разборе
+            # неудачного запуска, это только мешает.
+            fh.write(f"{stamp}  {text}\n")
     except OSError:
         pass
 
@@ -376,9 +379,72 @@ def _quiet_print_streams() -> None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
 
+def _записать_ошибку(заголовок: str, текст: str) -> None:
+    """Записать, почему не запустилось, — в журнал.
+
+    Отдельной функцией, а не прямо в main: иначе это нечем проверить.
+    Проверка запускается на настоящей поломке и убеждается, что причина
+    дошла до файла, — иначе «программа молча ничего не делает» будет
+    возвращаться после каждой правки.
+    """
+    note(f"НЕ ЗАПУСТИЛОСЬ — {заголовок}")
+    for строка in (текст or "").splitlines():
+        note("    " + строка.strip())
+
+
+def _страница_ошибки(заголовок: str, текст: str) -> str:
+    """Показать причину в окне — если окно вообще открывается."""
+    import html as _html
+    return (
+        "<body style='margin:0;padding:24px;background:#0e1319;color:#e6edf3;"
+        "font:14px/1.6 system-ui,sans-serif'>"
+        f"<h2 style='margin:0 0 12px;font-size:18px'>{_html.escape(заголовок)}</h2>"
+        f"<pre style='white-space:pre-wrap;color:#9fb0c3;margin:0 0 16px'>"
+        f"{_html.escape(текст or 'причина неизвестна')}</pre>"
+        "<p style='color:#7d8b9a;margin:0'>Подробности — в файле "
+        "<b>logs/launcher.log</b> рядом с программой.</p>"
+        "</body>"
+    )
+
+
+def _показать_ошибку(заголовок: str, текст: str) -> None:
+    """Показать причину окном. Не получится — не беда, причина в журнале."""
+    _записать_ошибку(заголовок, текст)
+    try:
+        import webview as _webview
+        _webview.create_window(f"{APP_NAME}: не запустилось",
+                               html=_страница_ошибки(заголовок, текст),
+                               width=700, height=520)
+        _webview.start()
+    except Exception:
+        pass        # окна нет и показать нечем — причина уже в журнале
+
+
 def main() -> int:
     _quiet_print_streams()
-    return run_client()
+    try:
+        return run_client()
+    except BaseException as exc:
+        # Раньше здесь просто выходили: папки создавались, и всё. На Linux
+        # это почти гарантированный сценарий — не хватает библиотек или
+        # нет экрана, — и человек не знал, куда смотреть.
+        import traceback
+        подробно = "".join(traceback.format_exception(type(exc), exc,
+                                                     exc.__traceback__))
+        _записать_ошибку(f"{type(exc).__name__}: {exc}", подробно)
+        _показать_окно_ошибки(f"{type(exc).__name__}: {exc}", подробно)
+        return 1
+
+
+def _показать_окно_ошибки(заголовок: str, текст: str) -> None:
+    try:
+        import webview as _webview
+        _webview.create_window(f"{APP_NAME}: не запустилось",
+                               html=_страница_ошибки(заголовок, текст),
+                               width=700, height=520)
+        _webview.start()
+    except Exception:
+        pass        # окна нет и показать нечем — причина уже в журнале
 
 
 if __name__ == "__main__":

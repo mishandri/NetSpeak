@@ -478,7 +478,43 @@ def main() -> int:
         return server.main(args[args.index("--serve") + 1:])
 
     _quiet_print_streams()
-    return run_server_app()
+    try:
+        return run_server_app()
+    except BaseException as exc:
+        # Окна может не быть: если до неё не дошли, показывать нечем.
+        # Тогда остаётся журнал — и он уже создан, иначе падать было бы
+        # негде записывать.
+        import traceback
+        подробно = "".join(traceback.format_exception(type(exc), exc,
+                                                     exc.__traceback__))
+        log_note(f"НЕ ЗАПУСТИЛОСЬ — {type(exc).__name__}: {exc}")
+        for строка in подробно.splitlines():
+            log_note("    " + строка)
+        try:
+            import webview as _webview
+            _webview.create_window(
+                f"{APP_NAME}: не запустилось",
+                html=страница_ошибки(f"{type(exc).__name__}: {exc}", подробно),
+                width=700, height=520)
+            _webview.start()
+            return 1
+        except Exception:
+            return 1
+
+
+def страница_ошибки(заголовок: str, текст: str) -> str:
+    """Простенькая страница с причиной: показывать больше нечем."""
+    import html as _html
+    return (
+        "<body style='margin:0;padding:24px;background:#0e1319;color:#e6edf3;"
+        "font:14px/1.6 system-ui,sans-serif'>"
+        f"<h2 style='margin:0 0 12px;font-size:18px'>{_html.escape(заголовок)}</h2>"
+        f"<pre style='white-space:pre-wrap;color:#9fb0c3;margin:0 0 16px'>"
+        f"{_html.escape(текст or 'причина неизвестна')}</pre>"
+        "<p style='color:#7d8b9a;margin:0'>Подробности — в файле "
+        "<b>logs/launcher.log</b> рядом с программой.</p>"
+        "</body>"
+    )
 
 
 def _attach_log_to_file() -> None:

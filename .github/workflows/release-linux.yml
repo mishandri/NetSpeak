@@ -36,24 +36,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      # Окно под Linux рисует GTK через WebKit2. Без этих пакетов
-      # pywebview запускается, но окно не появляется.
-      - name: Системные пакеты для окна
+      # Мост между Python и GTK — python3-gi. Он ставится системой и
+      # к СИСТЕМНОМУ Python, поэтому setup-python здесь и не нужен, и
+      # вреден: поставил бы Python из запаса, и модуль остался бы не
+      # там, где его ищет сборка. Именно так и вышло у человека:
+      # «No module named 'gi'».
+      #
+      # Имена webkit и libsoup различаются между 22.04 и 24.04, а
+      # ставим оба: лишнее apt ошибкой не считает, а отсутствие
+      # нужного обнаружится сразу при первом открытии окна.
+      - name: Системные пакеты: мост к GTK и окно
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgtk-3-0 libwebkit2gtk-4.1-0 libayatana-appindicator3-1 \
+            python3-pip python3-gi python3-gi-cairo \
+            gir1.2-gtk-3.0 \
+            gir1.2-webkit2-4.0 gir1.2-webkit2-4.1 \
+            gir1.2-soup-2.4 gir1.2-soup-3.0 \
+            libgtk-3-0 \
+            libwebkit2gtk-4.0-37 libwebkit2gtk-4.1-0 \
+            libayatana-appindicator3-1 \
             patchelf
 
-      - name: Зависимости
+      # Проверка ровно того, на чём всё и держится. Без неё сборка
+      # «успешно» пройдёт и выдаст бинарник, который падает при запуске.
+      - name: Мост между Python и GTK на месте?
         run: |
+          python3 -c "import gi; gi.require_version('Gtk','3.0'); print('gi:', gi.__version__)"
+
+      # venv с доступом к системным пакетам: иначе gi из
+      # dist-packages не виден и снова уезжает мимо сборки.
+      - name: Окружение сборки
+        run: |
+          python3 -m venv --system-site-packages .venv
+          . .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r requirements-linux.txt
+
+      - name: Зависимости
+        run: pip install -r requirements-linux.txt
 
       - name: Собрать
         run: python build_linux.py
