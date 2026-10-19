@@ -2,8 +2,11 @@
 """Какие адреса у этой машины и что на них слушает сервер.
 
 Живёт в отдельном модуле, потому что одно и то же нужно и окну запуска
-(выбор адреса), и серверу (что написать в журнал). Окно запуска тянет tkinter,
-а серверу он не нужен, поэтому пересекаться им негде.
+(выбор адреса), и серверу (что написать в журнал).
+
+На Windows адреса берутся из ipconfig, на Linux — из `ip -4 addr`. Вывод
+Linux переписывается в вид ipconfig, чтобы разбор был один: иначе в коде
+оказалось бы две копии правил разбора, и они разошлись бы со временем.
 """
 
 from __future__ import annotations
@@ -14,16 +17,20 @@ import socket
 import subprocess
 import time
 
-# Виртуальные адаптеры (гипервизоры, VPN, Bluetooth) пользователю не нужны:
-# с другого компьютера по ним не подключишься.
+# Виртуальные адаптеры (гипервизоры, VPN, Bluetooth, Docker) пользователю
+# не нужны: с другого компьютера по ним не подключишься, а предложить такой
+# адрес — значит человек потратит вечер, выясняя, почему никого не слышно.
+# Список названий общий для обеих систем: имена адаптеров у них разные,
+# но смысл один и тот же.
 _VIRTUAL = re.compile(
-    r"virtual|hyper-v|vmware|virtualbox|loopback|bluetooth|isatap|teredo|npcap|wireguard",
+    r"virtual|hyper-v|vmware|virtualbox|loopback|bluetooth|isatap|teredo"
+    r"|npcap|wireguard|docker|veth|virbr|br-[0-9a-f]",
     re.IGNORECASE,
 )
 _UNUSABLE = ("127.", "169.254.", "0.0.0.0", "255.")
 
 
-#: Ответ ipconfig держим в памяти. Раньше его брали заново на каждый запрос
+#: Ответ ipconfig (или ip addr на Linux) держим в памяти. Раньше его брали заново на каждый запрос
 #: (а /api/info дёргают и окно сервера, и все клиенты), и каждая такая
 #: проверка запускала ipconfig — консольное окно выскакивало на экране
 #: каждые несколько секунд и тут же исчезало.
@@ -72,6 +79,28 @@ else:
     _startupinfo = None
 
 
+def _run_ip_addr() -> str:
+    """Адреса с Linux, приведённые к тому же виду, что отдаёт ipconfig.
+
+    Чтобы не тащить в проект разбор двух форматов, вывод команды
+    переписывается в вид «Адаптер …: IPv4 …» — дальше работает один и тот
+    же разбор на обеих системах.
+    """
+    try:
+        raw = subprocess.run(["ip", "-4", "-o", "addr", "show"],
+                             capture_output=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    строки = []
+    for строка in raw.decode("utf-8", "replace").splitlines():
+        # «3: eth0    inet 192.168.1.5/24 brd … scope global eth0»
+        m = re.match(r"\d+:\s+(\S+)\s+inet\s+([0-9.]+)", строка)
+        if m:
+            строки.append(f"   Адаптер {m.group(1)}:")
+            строки.append(f"      IPv4-адрес: {m.group(2)}")
+    return "\n".join(строки)
+
+
 def _run_ipconfig() -> str:
     """Текст ipconfig в читаемом виде.
 
@@ -82,6 +111,12 @@ def _run_ipconfig() -> str:
     now = time.monotonic()
     if _cache["value"] and now - _cache["at"] < _CACHE_TTL:
         return _cache["value"]
+    if os.name != "nt":
+        # на Linux ipconfig нет, и запускать нечего — «Адаптер …» приходит
+        # уже приведённым к тому же виду
+        text = _run_ip_addr()
+        _cache["at"], _cache["value"] = now, text
+        return text
     try:
         raw = subprocess.run(
             ["ipconfig", "/all"], capture_output=True, timeout=10,

@@ -9,8 +9,9 @@
 
 Откуда берём число
 ------------------
-Windows держит в реестре MachineGuid — он переживает перезагрузку,
-переустановку программ и перенос папки. Дальше по убыванию надёжности:
+Windows держит в реестре MachineGuid, Linux — файл /etc/machine-id.
+Оба переживают перезагрузку, переустановку программ и перенос папки.
+Дальше по убыванию надёжности:
 серийный номер тома, сетевой адрес карты, имя компьютера. Если всё
 отвалилось — возвращаем пустую строку, и тогда приложение работает как
 раньше, на хранилище браузера.
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 import ctypes
 import hashlib
+import os
 import re
 import socket
 import uuid
@@ -50,6 +52,25 @@ def _machine_guid() -> str:
                     return str(value)
         except OSError:
             continue
+    return ""
+
+
+def _machine_id_file() -> str:
+    """machine-id Linux — то же, чем для Windows является MachineGuid.
+
+    Системный файл, переживает переустановку программ и перенос папки, а
+    потому годится на ту же роль, что и реестр.
+    """
+    if os.name == "nt":
+        return ""
+    for путь in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+        try:
+            значение = Path(путь).read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        # 32 шестнадцатеричных символа — так выглядит machine-id
+        if re.fullmatch(r"[0-9a-f]{32}", значение):
+            return значение
     return ""
 
 
@@ -87,7 +108,7 @@ def machine_id() -> str:
     global _memo
     if _memo is not None:
         return _memo
-    parts = [_machine_guid(), _volume_serial(), _node_id()]
+    parts = [_machine_guid(), _machine_id_file(), _volume_serial(), _node_id()]
     parts = [p for p in parts if p]
     if parts:
         raw = "|".join(parts)

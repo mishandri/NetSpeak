@@ -9,7 +9,9 @@ user, logs, data, history) и собранные exe. В репозитории 
     src/          исходники целиком
     tools/        генератор значков
     docs/         инструкция по релизу
-    build.py      сборка
+    build.py      сборка под Windows
+    build_linux.py сборка под Linux
+    requirements-linux.txt  зависимости для сборки под Linux
     readme.md     описание
     LICENSE
     .gitignore
@@ -41,8 +43,9 @@ COPY_DIRS = ("src", "tools", "docs")
 #: Отдельные файлы. .gitattributes нужен не меньше, чем .gitignore: без него
 #: git на Windows переписывает переносы строк и в списке изменений мелькают
 #: файлы, которых никто не трогал.
-COPY_FILES = ("build.py", "readme.md", "LICENSE", ".gitignore",
-              ".gitattributes", "publish.py")
+COPY_FILES = ("build.py", "build_linux.py", "readme.md", "LICENSE",
+              ".gitignore", ".gitattributes", "publish.py",
+              "requirements-linux.txt")
 
 #: Папки, которые не должны попасть в репозиторий ни при каких условиях.
 FORBIDDEN = ("bin", "build", "dist", "__pycache__", ".venv", "venv",

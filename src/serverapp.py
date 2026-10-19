@@ -305,8 +305,8 @@ class ServerApi:
         месте, только звука нет. Пусть журнал об этом скажет сразу, а не
         после получаса догадок.
         """
-        if nsfirewall is None:
-            return
+        if nsfirewall is None or not getattr(nsfirewall, "SUPPORTED", False):
+            return          # не Windows: кнопки нет, и спорить не о чем
         try:
             if nsfirewall.has_rules():
                 log_note(f"{APP_NAME}: брандмауэр разрешает входящие — голос должен идти")
@@ -330,8 +330,8 @@ class ServerApi:
         Windows часто его не пускает. Обойти это иначе нечем, а найти
         трудно: выглядит всё исправно, просто никто никого не слышит.
         """
-        if nsfirewall is None:
-            return {"ok": False, "error": "модуль брандмауэра не собран"}
+        if nsfirewall is None or not getattr(nsfirewall, "SUPPORTED", False):
+            return {"ok": False, "error": "брандмауэр настраивается только в Windows"}
         try:
             result = nsfirewall.allow_incoming()
         except Exception as exc:
@@ -488,13 +488,60 @@ def _attach_log_to_file() -> None:
     работало, а из консоли вывод уходил в неё и журнал оставался пустым.
     Теперь всегда в файл: журнал и есть то, что показывает окно сервера.
     Запись построчная, иначе строки появлялись бы пачками и с задержкой.
+
+    Если вывод идёт в настоящий терминал, то видно и в нём. Иначе можно
+    было бы запустить сервер без окна в консоли и не понять, работает ли
+    он: строки молча уходили бы в файл. Окно на Windows запускает сервер
+    без терминала, поэтому там всё как было.
     """
     paths.ensure_dirs()
     handle = open(paths.logs_dir() / "server.log", "a", encoding="utf-8",
                   errors="replace", buffering=1)
     handle.write(f"\n===== запуск {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
-    sys.stdout = handle
-    sys.stderr = handle
+
+    терминал_есть = False
+    for поток in (sys.stdout, sys.stderr):
+        try:
+            if поток is not None and поток.isatty():
+                терминал_есть = True
+        except (ValueError, OSError, AttributeError):
+            continue
+
+    sys.stdout = _ВФайлИТерминал(handle, sys.stdout if терминал_есть else None)
+    sys.stderr = _ВФайлИТерминал(handle, sys.stderr if терминал_есть else None)
+
+
+class _ВФайлИТерминал:
+    """Пишет в журнал и, если он есть, ещё и в терминал.
+
+    Отдельный объект для каждого потока, иначе строки от сервера и от
+    сообщений об ошибках смешивались бы в одну кучу.
+    """
+
+    def __init__(self, файл, терминал):
+        self._файл = файл
+        self._терминал = терминал
+
+    def write(self, текст):
+        self._файл.write(текст)
+        if self._терминал is not None:
+            self._терминал.write(текст)
+        return len(текст)
+
+    def flush(self):
+        self._файл.flush()
+        if self._терминал is not None:
+            try:
+                self._терминал.flush()
+            except (ValueError, OSError):
+                pass
+
+    def isatty(self):
+        return self._терминал is not None
+
+    def __getattr__(self, имя):
+        # всё остальное (encoding, errors, closed) — от терминала
+        return getattr(self._файл, имя)
 
 
 def _quiet_print_streams() -> None:

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Правила брандмауэра для голоса.
 
+Только для Windows: правила ставит netsh, которого на других системах нет.
+
 Голос идёт напрямую между компьютерами, минуя сервер: браузер спрашивает у
 собеседника напрямую, по UDP. Если брандмауэр Windows не пускает входящие
 пакеты, связи не будет совсем — а выглядит это так же, как «звука нет»,
@@ -13,6 +15,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +23,12 @@ from pathlib import Path
 RULE_NAMES = ("NetSpeak — входящие подключения",
               "NetSpeak Server — входящие подключения")
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+#: Правила ставит netsh, а он есть только в Windows. Под Linux то же самое
+#: делает ufw, но он требует sudo из окна — это отдельный разговор про
+#: права, и молча тянуть его сюда нельзя. Поэтому на других системах
+#: модуль честно говорит «не поддерживается», а окно прячет кнопку.
+SUPPORTED = hasattr(subprocess, "CREATE_NO_WINDOW")
 
 
 def exes() -> list[Path]:
@@ -34,7 +43,9 @@ def exes() -> list[Path]:
         return []
     here = Path(sys.executable).resolve().parent
     out: list[Path] = []
-    for name in ("NetSpeak.exe", "NetSpeakServer.exe"):
+    # расширение есть только у файлов Windows; на Linux собирается без него
+    суффикс = ".exe" if os.name == "nt" else ""
+    for name in (f"NetSpeak{sufфикс}", f"NetSpeakServer{sufфикс}"):
         path = here / name
         if path.is_file():
             out.append(path)
@@ -72,7 +83,10 @@ def allow_incoming() -> dict:
 
     Возвращает разбор: что сделано, что не вышло и что делать дальше.
     """
-    if not hasattr(subprocess, "CREATE_NO_WINDOW"):
+    if not SUPPORTED:
+        return {"ok": False, "added": [], "error": "только для Windows"}
+
+    if not SUPPORTED:
         return {"ok": False, "added": [], "error": "только для Windows"}
 
     if not is_admin():

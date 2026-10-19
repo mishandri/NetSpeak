@@ -17,7 +17,8 @@ from pathlib import Path
 from . import APP_NAME, paths
 
 #: Имя программы сервера. Рядом с клиентом — на случай «запустить сервер».
-SERVER_EXE = "NetSpeakServer.exe"
+#: На Linux файлы собираются без расширения, поэтому и имя другое.
+SERVER_EXE = "NetSpeakServer" + (".exe" if os.name == "nt" else "")
 
 
 def server_argv(port: int, plain: int | None = None) -> list[str]:
