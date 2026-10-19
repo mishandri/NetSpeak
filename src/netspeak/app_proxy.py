@@ -74,21 +74,31 @@ localhost — доверенный по определению, а не «по �
    запуске, и на чужом компьютере человек просыпался новым: всё
    настраивал заново. Проверяется сравнением хранилища на двух адресах.
 
+5. «Кто я» и «мой профиль» посредник отвечает сам — то есть машиной
+   КЛИЕНТА, а не сервера, — и помечает пересланные запросы заголовком
+   X-NetSpeak-Proxy. Иначе страница считала бы себя машиной сервера
+   (она и правда смотрит на localhost) и превращалась в того же
+   человека, что клиент на серверной машине: в виртуалке выбирал
+   аватар — менялся он у обоих. Проверяется ns_proxy_device_check.py.
+
 Отсюда правило: трогая этот файл, проверяй не только «страница
 открылась», а предложение, ответ и кандидаты соединения, сохранение
 имени с аватаром и — отдельно — что адрес приложения не меняется от
 запуска к запуску. Первые три делают ns_signal_test.py и ns_keep_test.py,
-четвёртое — ns_port_test.py.
+четвёртое — ns_port_test.py, пятое — ns_proxy_device_check.py.
 """
 
 from __future__ import annotations
 
 import http.client
+import json
 import socket
 import ssl
 import threading
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from . import device, profile
 
 #: Заголовки, которые не переносятся через посредник: они относятся к
 #: соединению «здесь» и «там», а не к содержимому ответа.
@@ -138,12 +148,22 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- что умеем ---------------------------------------------------------
     def do_GET(self):
+        путь = urlparse(self.path).path
+        if путь == "/api/device":
+            self._answer_device()
+            return
+        if путь == "/api/profile":
+            self._answer_profile()
+            return
         self._relay("GET")
 
     def do_HEAD(self):
         self._relay("HEAD")
 
     def do_POST(self):
+        if urlparse(self.path).path == "/api/profile":
+            self._profile_save()
+            return
         self._relay("POST")
 
     def do_PUT(self):
@@ -158,15 +178,104 @@ class _Handler(BaseHTTPRequestHandler):
     def do_PATCH(self):
         self._relay("PATCH")
 
+    # -- ответ о себе ------------------------------------------------------
+    def _answer_device(self) -> None:
+        """Кто мы — отвечает посредник, а не сервер.
+
+        Страница считает адрес 127.0.0.1 «своей машиной» — для этого они
+        и существуют (см. шапку файла): на localhost микрофон отдают без
+        https. Но через посредник страница открывается и у чужого
+        сервера, и тогда «кто я» отвечал бы тот, на чьём сервере мы
+        сидим: страница спрашивала /api/device, посредник пересылал
+        запрос в Windows, а сервер честно отвечал номером и зёрнышем
+        СВОЕЙ машины. Так клиент в виртуалке становился тем же
+        человеком, что и клиент на серверном компьютере: выбираешь
+        аватар в одном месте — меняется он у обоих.
+
+        Поэтому /api/device посредник не пересылает вовсе: отвечает
+        сам, личностью того устройства, на котором запущен клиент.
+        Разброс полей — тот же, что у сервера (это device.identity()
+        плюс sameMachine), поэтому страница работает без изменений;
+        номер человека при этом живёт в номере машины и зёрныше папки,
+        как и задумано, — а не в чьём-то чужом ответе.
+        """
+        ident = device.identity()
+        body = json.dumps({**ident, "sameMachine": True}).encode("utf-8")
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (OSError, ValueError):
+            pass
+
+    def _answer_profile(self) -> None:
+        """Профиль отвечаем свой, как и «кто мы».
+
+        Страница берёт «профиль серверной машины» лишь при sameMachine.
+        Для страницы через посредник «серверная машина» — это мы, и
+        профиль она должна получать наш: пересланный вверх ответ
+        описывал бы человека, который запустил сервер, и при первом
+        входе — пока у нас нет ни своего имени, ни записи в базе —
+        страница показала бы его имя вместо нашего. Выбор аватара в
+        виртуалке на хосте менял аватар — та же семья сюрпризов.
+        """
+        данные = profile.load_user()
+        аватар = str(данные.get("avatar") or "")
+        # та же форма ссылки, что у сервера (server.py, avatar_url); без
+        # номера версии — своя копия файла здесь не меняется без пересборки
+        ссылка = f"/avatars/{quote(аватар)}?v=0" if аватар else ""
+        body = json.dumps({**данные, "avatarUrl": ссылка}).encode("utf-8")
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (OSError, ValueError):
+            pass
+
+    def _profile_save(self) -> None:
+        """Сохранение имени с аватаром: вверх как обычно, себе — в файл.
+
+        Сервер по пометке X-NetSpeak-Proxy знает, что открыт через
+        посредник чужого клиента, и обновляет только свою базу. Наш же
+        файл профиля обновляем мы сами — теми же правилами, что и
+        сервер у себя: пустое значение уже сохранённое не стирает, а
+        среди полей человек имеет право менять лишь своё.
+        """
+        тело = self._read_body()
+        try:
+            данные = json.loads(тело.decode("utf-8")) if тело else None
+        except (ValueError, UnicodeDecodeError):
+            данные = None
+        ok = isinstance(данные, dict)
+        if not ok:
+            # пустое или не-JSON тело отдаём серверу как было: там свои
+            # проверки, а нам нечего и в файле менять
+            self._relay("POST", тело)
+            return
+        зеркало = {ключ: данные[ключ] for ключ in ("name", "avatar", "showCircle")
+                   if данные.get(ключ) not in ("", None)}
+        try:
+            profile.save_user(зеркало)
+        except OSError:
+            pass          # без файла работаем — записи в базе хватит
+        self._relay("POST", тело)
+
     # -- сама пересылка ---------------------------------------------------
-    def _relay(self, method: str) -> None:
+    def _relay(self, method: str, тело: bytes | None = None) -> None:
         app = self.server.app                     # тип: LocalApp
         try:
-            body = self._read_body()
+            if тело is None:
+                тело = self._read_body()
             conn = app.connect(self.path)
             try:
                 headers = self._request_headers()
-                conn.request(method, self.path, body=body or None, headers=headers)
+                conn.request(method, self.path, body=тело or None, headers=headers)
                 resp = conn.getresponse()
                 self._send_head(resp)
                 if method == "HEAD":
@@ -207,6 +316,12 @@ class _Handler(BaseHTTPRequestHandler):
         # без этого urllib отдаёт «Connection: close» и рвёт поток событий
         out["Connection"] = "keep-alive"
         out["Accept-Encoding"] = "identity"
+        # честная пометка: запрос идёт через посредник чужого клиента.
+        # Сервер по ней отличает «открыто с машины клиента через
+        # посредник» от «открыто на самой серверной машине» — по адресу
+        # отличить нельзя: NAT виртуалки выходит в сеть с адресом
+        # самой серверной машины (подробно — в server.py _same_machine).
+        out["X-NetSpeak-Proxy"] = "1"
         self._fix_origin(out)
         return out
 
