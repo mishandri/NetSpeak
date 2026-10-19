@@ -24,12 +24,12 @@ if __package__ in (None, ""):
     from netspeak import APP_NAME, __version__, netinfo, paths, profile
     from netspeak import firewall as nsfirewall
     from netspeak.serverctl import ServerControl, log_note
-    from netspeak.window_keeper import WindowKeeper, icon_path
+    from netspeak.window_keeper import WindowKeeper, window_icon
 else:
     from . import APP_NAME, __version__, netinfo, paths, profile
     from . import firewall as nsfirewall
     from .serverctl import ServerControl, log_note
-    from .window_keeper import WindowKeeper, icon_path
+    from .window_keeper import WindowKeeper, window_icon
 
 import webview
 
@@ -450,7 +450,7 @@ def run_server_app() -> int:
 
     window.events.closing += on_closing
 
-    webview.start(icon=icon_path("server") or None,
+    webview.start(icon=window_icon("server") or None,
                 **_webview_storage("server"))
     watcher.stop()
     state["stop"].set()

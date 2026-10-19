@@ -25,11 +25,11 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from netspeak import APP_NAME, __version__, netinfo, paths, profile
     from netspeak.app_proxy import LocalApp
-    from netspeak.window_keeper import WindowKeeper, icon_path
+    from netspeak.window_keeper import WindowKeeper, window_icon
 else:
     from . import APP_NAME, __version__, netinfo, paths, profile
     from .app_proxy import LocalApp
-    from .window_keeper import WindowKeeper, icon_path
+    from .window_keeper import WindowKeeper, window_icon
 
 import webview
 
@@ -343,7 +343,7 @@ def run_client() -> int:
 
     # Значок окна задаётся здесь, а не в create_window: у pywebview он
     # общий для всех окон и передаётся при запуске
-    webview.start(icon=icon_path() or None, **_webview_storage("client"))
+    webview.start(icon=window_icon() or None, **_webview_storage("client"))
     watcher.stop()
     keeper.stop_tray()
     # посредник живёт в этом же процессе: без остановки он остался бы

@@ -81,22 +81,49 @@ if pystray is not None and sys.platform.startswith("linux"):
 
 # ────────────────────────────── значок ────────────────────────────────────
 
-def icon_path(variant: str = "") -> str:
-    """Файл значка: сперва рядом с exe, потом внутри собранного пакета.
+def _find_icon_file(stem: str, ext: str) -> str:
+    """Ищет файл значка: сперва рядом с exe, потом в пакете и исходниках.
 
-    Рядом с exe — чтобы можно было подменить значок, не пересобирая.
-    variant: "" — клиент (зелёный), "server" — бордовый.
+    Рядом с exe — чтобы можно было подменить значок, не пересобирая
+    (сборщик Linux кладёт там png для меню приложений).
     """
-    name = "icon-server.ico" if variant == "server" else "icon.ico"
+    base = Path(getattr(sys, "_MEIPASS", paths_root()))
     candidates = [
-        Path(getattr(sys, "_MEIPASS", paths_root())) / "web" / name,
-        paths_root() / "web" / name,
-        paths_root() / "src" / "web" / name,
+        paths_root() / f"{stem}{ext}",
+        base / "web" / f"{stem}{ext}",
+        paths_root() / "web" / f"{stem}{ext}",
+        paths_root() / "src" / "web" / f"{stem}{ext}",
     ]
     for c in candidates:
         if c.is_file():
             return str(c)
     return ""
+
+
+def icon_path(variant: str = "") -> str:
+    """Файл значка для трея: сперва png, затем .ico.
+
+    variant: "" — клиент (зелёный), "server" — бордовый. png первым:
+    PIL, что рисует значок в трее, открывает оба формата, а png в Linux
+    вокруг и так есть — тот же файл, что показывает меню приложений.
+    """
+    stem = "icon-server" if variant == "server" else "icon"
+    png = _find_icon_file(stem, ".png")
+    return png if png else _find_icon_file(stem, ".ico")
+
+
+def window_icon(variant: str = "") -> str:
+    """Путь значка для заголовка окна, или пусто — если нечего показать.
+
+    Windows грузит значок окна из .ico сам, а в Linux его берёт
+    gdk-pixbuf: сжатые .ico он не читает («Сжатые значки не
+    поддерживаются»), и с нашим файлом окно падало при создании.
+    Поэтому для Linux — только png. Нет png — окно выйдет с системным
+    значком: это лучше, чем не открыться вовсе.
+    """
+    stem = "icon-server" if variant == "server" else "icon"
+    ext = ".ico" if sys.platform == "win32" else ".png"
+    return _find_icon_file(stem, ext)
 
 
 def paths_root() -> Path:
