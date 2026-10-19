@@ -135,10 +135,16 @@ def _give_window_its_name() -> None:
     программы, поэтому и prgname проставляем, чтобы .desktop со
     StartupWMClass совпал.
 
-    Флаг NON_UNIQUE добавлен не для панельки: два клиента на одной
-    машине — то же имя приложения. GApplication без него передавал бы
-    запуск вторым процессом первому.
+    Флаг NON_UNIQUE (32 — настоящее значение GApplicationFlags; «4» — это
+    HANDLES_OPEN) добавлен не для панельки: два клиента на одной машине —
+    то же имя приложения. GApplication без него передавал бы запуск
+    вторым процессом первому, и окно не открывалось бы вовсе.
+
+    Отключается средой: NETSPEAK_NO_PANEL=1 ./NetSpeak — окно без имени,
+    как было. Прибор для разбора, если панель и запуск не подружились.
     """
+    if os.environ.get("NETSPEAK_NO_PANEL"):
+        return  # выключатель: панель без имени, запуск — как раньше
     имя = "NetSpeak"
     try:
         if getattr(sys, "frozen", False):
@@ -161,19 +167,26 @@ def _give_window_its_name() -> None:
     except Exception:
         pass
 
-    original = Gtk.Application.new
-    if getattr(original, "_netspeak_name", False):
-        return  # уже одевали
+    try:
+        original = Gtk.Application.new
+        if getattr(original, "_netspeak_name", False):
+            return  # уже одевали
 
-    #: D-Bus требует точку в имени; файл .desktop называется так же:
-    #: net.netspeak.<имя программы>.desktop
-    app_id = f"net.netspeak.{имя}"
+        #: D-Bus требует точку в имени; файл .desktop называется так же:
+        #: net.netspeak.<имя программы>.desktop
+        app_id = f"net.netspeak.{имя}"
 
-    def с_именем(ид=None, флаги=0):
-        return original(app_id, флаги | 4)    # 4 — G_APPLICATION_NON_UNIQUE
+        def с_именем(ид=None, флаги=0):
+            # 32 — GApplicationFlags.NON_UNIQUE: запуск не передаётся
+            # другому процессу, сколько клиентов ни заводи
+            return original(app_id, (флаги or 0) | 32)
 
-    с_именем._netspeak_name = True
-    Gtk.Application.new = staticmethod(с_именем)
+        с_именем._netspeak_name = True
+        Gtk.Application.new = staticmethod(с_именем)
+    except Exception:
+        # имя панели — украшение: если одеть не вышло (версия GTK
+        # вбросила неожиданность), живёт прежнее безымянное окно
+        pass
 
 
 if pystray is not None and sys.platform.startswith("linux"):
