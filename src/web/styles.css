@@ -118,6 +118,20 @@ body { overflow: hidden; }
 .field input:focus, .field select:focus { border-color: var(--accent); }
 .field input::placeholder { color: var(--muted); }
 
+/* Окно в Linux рисует select нативной GTK-темой и игнорирует Авторский CSS:
+   в тёмной теме получается светлый ящик со светлым текстом, и значений
+   не видно. appearance: none возвращает рисование самому себе — цветам
+   темы выше; стрелку рисуем картинкой, чтобы осталась привычной. */
+.field select {
+  -webkit-appearance: none; appearance: none;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M1 1l4 4 4-4' stroke='%238b98a9' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  padding-right: 34px;
+}
+.field select option { background-color: var(--panel-3); color: var(--text); }
+
 /* базовый вид для обычных ползунков (громкость участника) */
 input[type="range"] {
   -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px;

@@ -288,6 +288,7 @@ Icon={значок}
 Terminal=false
 Categories=Network;AudioVideo;
 StartupNotify=true
+StartupWMClass={name}
 X-NetSpeak-Version={version}
 """
 
@@ -366,7 +367,8 @@ def main() -> int:
     # .desktop — чтобы программа запускалась двойным щелчком и имела значок
     for name, _e, icon, description in TARGETS:
         значок = png_icon(SRC / "web" / icon)
-        (BIN / f"{name}.desktop").write_text(
+        файл = BIN / f"net.netspeak.{name}.desktop"
+        файл.write_text(
             desktop_file(name, значок, description, version),
             encoding="utf-8", newline="\n")
 

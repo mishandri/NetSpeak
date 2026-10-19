@@ -125,11 +125,63 @@ def _give_page_mic_permission() -> None:
     gtk_backend.BrowserView.__init__ = wrapped
 
 
+def _give_window_its_name() -> None:
+    """GTK-приложению — имя этой программы, иначе generic значок в панели.
+
+    pywebview создаёт приложение как Gtk.Application.new(None, 0):
+    без имени. Панель задач GNOME ищет по имени файла .desktop — у неё
+    ни папки, ни картинки: безымянное окно достаётся шестерёнке. Под
+    X11 работает другой путь — WM_CLASS окна: он берётся из имени
+    программы, поэтому и prgname проставляем, чтобы .desktop со
+    StartupWMClass совпал.
+
+    Флаг NON_UNIQUE добавлен не для панельки: два клиента на одной
+    машине — то же имя приложения. GApplication без него передавал бы
+    запуск вторым процессом первому.
+    """
+    имя = "NetSpeak"
+    try:
+        if getattr(sys, "frozen", False):
+            базис = Path(sys.executable).stem
+            if базис:
+                имя = базис
+    except Exception:
+        pass
+
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk, GLib
+    except Exception:
+        return  # не Linux/без GTK — и вопрос о панели не встанет
+
+    try:
+        GLib.set_prgname(имя)
+        GLib.set_application_name(APP_NAME)
+    except Exception:
+        pass
+
+    original = Gtk.Application.new
+    if getattr(original, "_netspeak_name", False):
+        return  # уже одевали
+
+    #: D-Bus требует точку в имени; файл .desktop называется так же:
+    #: net.netspeak.<имя программы>.desktop
+    app_id = f"net.netspeak.{имя}"
+
+    def с_именем(ид=None, флаги=0):
+        return original(app_id, флаги | 4)    # 4 — G_APPLICATION_NON_UNIQUE
+
+    с_именем._netspeak_name = True
+    Gtk.Application.new = staticmethod(с_именем)
+
+
 if pystray is not None and sys.platform.startswith("linux"):
     _give_tray_its_own_context()
 if sys.platform.startswith("linux"):
     # разрешение на микрофон — отдельная история от трея и не зависит от него
     _give_page_mic_permission()
+    _give_window_its_name()
 
 
 # ────────────────────────────── значок ────────────────────────────────────

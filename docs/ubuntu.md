@@ -177,14 +177,21 @@ chmod +x NetSpeakServer NetSpeak
 
 ## Значок и запуск из меню
 
-Рядом с программой лежат готовые файлы `NetSpeakServer.desktop` и
-`NetSpeak.desktop`. Чтобы они появились в меню приложений:
+Рядом с программой лежат готовые файлы `net.netspeak.NetSpeakServer.desktop`
+и `net.netspeak.NetSpeak.desktop`. Чтобы они появились в меню приложений:
 
 ```bash
 mkdir -p ~/.local/share/applications
-cp NetSpeakServer.desktop NetSpeak.desktop ~/.local/share/applications/
-chmod +x ~/.local/share/applications/NetSpeak*.desktop
+cp net.netspeak.NetSpeak.desktop net.netspeak.NetSpeakServer.desktop \
+   ~/.local/share/applications/
+chmod +x ~/.local/share/applications/net.netspeak.*.desktop
 ```
+
+Имена файлов не случайны: панель задач GNOME сопоставляет окно с
+значком по внутреннему имени приложения, и оно записано ровно этими
+именами. Программа и сама сообщает панели своё имя; эти файлы дают
+ей рисунок и подпись. Без копирования работает всё, кроме рисунка
+свернутого окна: панель нарисует безымянному окну общую шестерёнку.
 
 Значок в меню возьмётся из `icon.png`, который рядом с программой: тот же
 рисунок, что и на Windows, но в том виде, в каком его умеет показывать
