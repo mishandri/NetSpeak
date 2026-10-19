@@ -75,8 +75,61 @@ def _give_tray_its_own_context() -> None:
     gtk_icon._run = _run
 
 
+def _give_page_mic_permission() -> None:
+    """Странице — разрешение на микрофон без окна с вопросом.
+
+    WebKitGTK сам никакого диалога не показывает: если у окна нет
+    обработчика сигнала permission-request, запрос получает отказ
+    молча — и микрофон не открывается никогда, даже при живых списках
+    устройств. В Windows (WebView2) этот вопрос решает сама система, а
+    в GTK диалога нет совсем, поэтому обработчик ставим мы.
+
+    Разрешается только медиа (UserMediaPermissionRequest — микрофон с
+    камерой): это цель программы, и окно знает точно, какую страницу
+    оно показывает. Всё остальное — уведомления, геолокация и прочее —
+    отказ: страница об этом не просила, а разрешения собираются
+    без напоминаний и не вслепую.
+    """
+    try:
+        from webview.platforms import gtk as gtk_backend
+    except Exception:
+        return  # не Linux/без GTK — вопрос и не встанет
+    try:
+        from gi.repository import WebKit2
+        media_class = getattr(WebKit2, "UserMediaPermissionRequest", None)
+    except Exception:
+        media_class = None
+
+    original = gtk_backend.BrowserView.__init__
+    if getattr(original, "_netspeak_media", False):
+        return  # уже обёрнуто
+
+    def _ns_asked(webview, request):
+        try:
+            if media_class is not None and isinstance(request, media_class):
+                request.allow()
+            else:
+                request.deny()
+        except Exception:
+            pass
+        return True
+
+    def wrapped(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        try:
+            self.webview.connect("permission-request", _ns_asked)
+        except Exception:
+            pass  # окно и так откроется — только без авто-разрешения
+
+    wrapped._netspeak_media = True
+    gtk_backend.BrowserView.__init__ = wrapped
+
+
 if pystray is not None and sys.platform.startswith("linux"):
     _give_tray_its_own_context()
+if sys.platform.startswith("linux"):
+    # разрешение на микрофон — отдельная история от трея и не зависит от него
+    _give_page_mic_permission()
 
 
 # ────────────────────────────── значок ────────────────────────────────────
