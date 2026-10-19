@@ -176,10 +176,24 @@ def _give_window_its_name() -> None:
         #: net.netspeak.<имя программы>.desktop
         app_id = f"net.netspeak.{имя}"
 
-        def с_именем(ид=None, флаги=0):
-            # 32 — GApplicationFlags.NON_UNIQUE: запуск не передаётся
-            # другому процессу, сколько клиентов ни заводи
-            return original(app_id, (флаги or 0) | 32)
+        try:
+            from gi.repository import Gio
+            #: 32 — GApplicationFlags.NON_UNIQUE. Числом не передавать:
+            #: часть pygobject число в GApplicationFlags отвергает
+            #: (TypeError «Expected a Gio.ApplicationFlags, but got int»),
+            #: а pywebview как раз передаёт число. Здесь всегда главный
+            #: процесс, UNIQUE и не нужен исходно — отгоняем «второго».
+            не_уникальный = Gio.ApplicationFlags.NON_UNIQUE
+        except Exception:
+            не_уникальный = None
+
+        def с_именем(ид=None, флаги=None):
+            try:
+                if не_уникальный is not None:
+                    return original(app_id, не_уникальный)
+            except Exception:
+                pass  # GTK отвергла — выходим на путь pywebview ниже
+            return original(ид, флаги)  # 1:1 тот вызов, что работал всегда
 
         с_именем._netspeak_name = True
         Gtk.Application.new = staticmethod(с_именем)
