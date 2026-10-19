@@ -75,7 +75,7 @@ WEBKIT_24 = ("gir1.2-webkit2-4.1", "gir1.2-soup-3.0", "libwebkit2gtk-4.1-0")
 #: просто значка у часов нет. Нужно именно описание индикатора (gir1.2-):
 #: pystray спрашивает у системы его, а не саму библиотеку, — библиотека
 #: приедет с описанием сама.
-SYSTEM_PACKAGES_OPTIONAL = ("gir1.2-ayatanaappindicator3-1",)
+SYSTEM_PACKAGES_OPTIONAL = ("gir1.2-ayatanaappindicator3-0.1",)
 
 
 def webkit_variant() -> tuple[str, ...]:

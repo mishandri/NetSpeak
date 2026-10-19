@@ -57,7 +57,7 @@ lsb_release -a
 Просто значка у часов не будет. Если он нужен:
 
 ```bash
-sudo apt-get install -y gir1.2-ayatanaappindicator3-1
+sudo apt-get install -y gir1.2-ayatanaappindicator3-0.1
 ```
 
 Здесь нужно именно описание индикатора для моста (`gir1.2-`), а не сама
@@ -71,7 +71,7 @@ sudo apt-get install -y gir1.2-ayatanaappindicator3-1
 sudo apt-get update
 sudo apt-get install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
                         libwebkit2gtk-4.1-0 \
-                        gir1.2-ayatanaappindicator3-1
+                        gir1.2-ayatanaappindicator3-0.1
 dpkg -l libgtk-3-0 | grep '^ii'
 ```
 

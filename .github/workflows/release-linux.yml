@@ -59,7 +59,7 @@ jobs:
             gir1.2-webkit2-4.1 gir1.2-soup-3.0 libwebkit2gtk-4.1-0 || true
           # значок в трее — по желанию: без него программа работает
           sudo apt-get install -y --no-install-recommends \
-            gir1.2-ayatanaappindicator3-1 || true
+            gir1.2-ayatanaappindicator3-0.1 || true
 
       # Проверка ровно того, на чём всё и держится. Без неё сборка
       # «успешно» пройдёт и выдаст бинарник, который падает при запуске.

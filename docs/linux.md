@@ -91,7 +91,7 @@ sudo apt-get install -y gir1.2-webkit2-4.0 gir1.2-soup-2.4 \
 sudo apt-get install -y gir1.2-webkit2-4.1 gir1.2-soup-3.0 \
   libwebkit2gtk-4.1-0 || true
 # значок в трее — по желанию: без него программа работает как обычно
-sudo apt-get install -y gir1.2-ayatanaappindicator3-1 || true
+sudo apt-get install -y gir1.2-ayatanaappindicator3-0.1 || true
 
 # 2. Проверить, что мост на месте. Не напечаталась версия — пакета нет.
 python3 -c "import gi; gi.require_version('Gtk','3.0'); print(gi.__version__)"
