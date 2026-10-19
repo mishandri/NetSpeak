@@ -92,6 +92,14 @@ sudo apt-get install -y gir1.2-webkit2-4.1 gir1.2-soup-3.0 \
   libwebkit2gtk-4.1-0 || true
 # значок в трее — по желанию: без него программа работает как обычно
 sudo apt-get install -y gir1.2-ayatanaappindicator3-0.1 || true
+# звук: окно WebKit видит микрофоны и колонки через GStreamer. Без
+# плагинов интерфейс показывает пустые списки устройств. Сервер звука
+# различается по выпускам: до 22.04 включительно PulseAudio, новее —
+# PipeWire, поэтому pulseaudio и pipewire — по одному, с терпимостью
+sudo apt-get install -y gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+  gstreamer1.0-libav || true
+sudo apt-get install -y gstreamer1.0-pipewire || true   # 23.04 и новее
+sudo apt-get install -y gstreamer1.0-pulseaudio || true # 22.04 и старее
 
 # 2. Проверить, что мост на месте. Не напечаталась версия — пакета нет.
 python3 -c "import gi; gi.require_version('Gtk','3.0'); print(gi.__version__)"

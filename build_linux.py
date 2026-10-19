@@ -77,6 +77,37 @@ WEBKIT_24 = ("gir1.2-webkit2-4.1", "gir1.2-soup-3.0", "libwebkit2gtk-4.1-0")
 #: приедет с описанием сама.
 SYSTEM_PACKAGES_OPTIONAL = ("gir1.2-ayatanaappindicator3-0.1",)
 
+#: Звук. Окно программы — WebKit, и микрофоны с колонками он находит
+#: через GStreamer: сервер звука не в списке. Без этих плагинов
+#: интерфейс показывает пустые списки — «нет ни одного устройства
+#: ввода и вывода звука», хотя колонки в системе и есть. Сервер звука
+#: различается по выпускам Ubuntu: до 22.04 включительно PulseAudio,
+#: новее — PipeWire, имена пакетов у них разные, поэтому ставим
+#: по одному, каждый с терпимостью, как и webkit.
+SOUND_PULSE = ("gstreamer1.0-pulseaudio",)
+SOUND_PIPEWIRE = ("gstreamer1.0-pipewire",)
+SOUND_COMMON = (
+    "gstreamer1.0-plugins-good",
+    "gstreamer1.0-plugins-bad",
+    "gstreamer1.0-libav",
+)
+
+
+def sound_variant() -> tuple[str, ...]:
+    """Плагины звука под эту Ubuntu — см. SOUND_PULSE/PIPEWIRE."""
+    try:
+        текст = Path("/etc/os-release").read_text(encoding="utf-8")
+        m = re.search(r"VERSION_ID=(\d+)", текст)
+    except OSError:
+        m = None
+    if m and int(m.group(1)) <= 22:
+        return SOUND_PULSE
+    if m:
+        return SOUND_PIPEWIRE
+    # не Ubuntu или файл не прочёлся: перечисляем оба набора — пусть
+    # предупреждение будет шумным, но не молча-неполным
+    return SOUND_PULSE + SOUND_PIPEWIRE
+
 
 def webkit_variant() -> tuple[str, ...]:
     """Пакеты движка страницы под эту Ubuntu — см. WEBKIT_22/WEBKIT_24."""
@@ -167,10 +198,10 @@ def check_deps() -> bool:
     return check_gi()
 
 
-def check_system() -> list[str]:
-    """Каких системных пакетов не хватает. Предупреждение, а не отказ."""
+def installed_packages() -> set[str]:
+    """Что уже установлено — для сравнения со списками apt."""
     if shutil.which("dpkg-query") is None:
-        return []
+        return set()
     установлены = set()
     r = subprocess.run(["dpkg-query", "-W", "-f=${Package} ${Status}\n"],
                        capture_output=True)
@@ -178,7 +209,24 @@ def check_system() -> list[str]:
         части = строка.split()
         if len(части) >= 4 and части[-1] == "installed":
             установлены.add(части[0])
+    return установлены
+
+
+def check_system() -> list[str]:
+    """Каких системных пакетов не хватает. Предупреждение, а не отказ."""
+    if shutil.which("dpkg-query") is None:
+        return []
+    установлены = installed_packages()
     нужные = SYSTEM_PACKAGES_BUILD + webkit_variant()
+    return [имя for имя in нужные if имя not in установлены]
+
+
+def check_sound() -> list[str]:
+    """Каких плагинов звука не хватает. Предупреждение, а не отказ."""
+    if shutil.which("dpkg-query") is None:
+        return []
+    установлены = installed_packages()
+    нужные = SOUND_COMMON + sound_variant()
     return [имя for имя in нужные if имя not in установлены]
 
 
@@ -258,6 +306,17 @@ def main() -> int:
             print(f"    — {имя}")
         print("\n  sudo apt-get install -y " + " ".join(нет_пакетов))
         print("Без них программа соберётся, но окно может не появиться.\n")
+
+    нет_звука = check_sound()
+    if нет_звука:
+        print("\nВозможно, не хватает плагинов звука: окно WebKit видит")
+        print("микрофоны и колонки через GStreamer. Без них программа")
+        print("соберётся и откроется, но списки звука внутри будут пустые:")
+        for имя in нет_звука:
+            print(f"    — {имя}")
+        print("\n  sudo apt-get install -y " + " ".join(нет_звука))
+        print("(если какого-то имени в этом выпуске Ubuntu нет — ставьте")
+        print(" по одному, каждый с || true — остальные доедут)\n")
 
     # Значок в трее — по желанию, и его отсутствие сборке не мешает:
     # описание индикатора нужно тому, кто запускает готовый файл.

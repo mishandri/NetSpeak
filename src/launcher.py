@@ -23,11 +23,11 @@ from pathlib import Path
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from netspeak import APP_NAME, __version__, netinfo, paths, profile
+    from netspeak import APP_NAME, __version__, device, netinfo, paths, profile
     from netspeak.app_proxy import LocalApp
     from netspeak.window_keeper import WindowKeeper, window_icon
 else:
-    from . import APP_NAME, __version__, netinfo, paths, profile
+    from . import APP_NAME, __version__, device, netinfo, paths, profile
     from .app_proxy import LocalApp
     from .window_keeper import WindowKeeper, window_icon
 
@@ -298,6 +298,7 @@ class ClientApi:
 def run_client() -> int:
     paths.ensure_dirs()
     profile.ensure_files()
+    note("кто мы: " + device.identity_text())
 
     # Обновление надеваем до всяких окон. Скачанное при прошлом запуске
     # перезаписать можно только сняв с программы образ запуска, поэтому

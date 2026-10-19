@@ -21,12 +21,12 @@ from pathlib import Path
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from netspeak import APP_NAME, __version__, netinfo, paths, profile
+    from netspeak import APP_NAME, __version__, device, netinfo, paths, profile
     from netspeak import firewall as nsfirewall
     from netspeak.serverctl import ServerControl, log_note
     from netspeak.window_keeper import WindowKeeper, window_icon
 else:
-    from . import APP_NAME, __version__, netinfo, paths, profile
+    from . import APP_NAME, __version__, device, netinfo, paths, profile
     from . import firewall as nsfirewall
     from .serverctl import ServerControl, log_note
     from .window_keeper import WindowKeeper, window_icon
@@ -375,6 +375,7 @@ class ServerApi:
 def run_server_app() -> int:
     paths.ensure_dirs()
     profile.ensure_files()
+    log_note(f"{APP_NAME}: кто мы: {device.identity_text()}")
 
     watcher = start_update_watcher("server")
 
