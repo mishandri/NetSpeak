@@ -24,9 +24,11 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from netspeak import APP_NAME, __version__, netinfo, paths, profile
+    from netspeak.app_proxy import LocalApp
     from netspeak.window_keeper import WindowKeeper, icon_path
 else:
     from . import APP_NAME, __version__, netinfo, paths, profile
+    from .app_proxy import LocalApp
     from .window_keeper import WindowKeeper, icon_path
 
 import webview
@@ -244,24 +246,48 @@ class ClientApi:
             note(f"по адресу {host}:{port} никто не отвечает")
             return False
 
-        url = app_url(host, port)
+        own = _is_own_machine(host)
         # Свой сервер должен отдавать приложение целиком. Если не отдаёт —
         # открывать окно бессмысленно: пользователь увидит пустоту.
-        if _is_own_machine(host) and not local_serves_app(port):
-            note(f"локальный адрес {url} не отдаёт приложение")
+        if own and not local_serves_app(port):
+            note(f"локальный адрес {app_url(host, port)} не отдаёт приложение")
             return False
 
-        # Версию клиента передаём странице в адресе. Страницу отдаёт сервер,
-        # и без этой подсказки она показала бы свою версию — а человек на
-        # клиенте должен видеть версию того, чем он пользуется. Дописывать
-        # версию руками нигде не нужно: она и так берётся отсюда, из кода.
-        url = with_version(url)
-
+        # Открывать в браузере оставляем как есть: там всё равно придётся
+        # подтверждать сертификат, и посредник тут не поможет — браузер
+        # открывает адрес сам, мимо нас.
         if in_browser:
+            url = with_version(app_url(host, port))
             webbrowser.open(url + "/")
             note(f"открыто в браузере: {url}")
             return True
 
+        if own:
+            # Свой сервер: 127.0.0.1 браузер считает защищённым и так,
+            # посредник тут только лишний процесс.
+            url = with_version(app_url(host, port))
+            open_app_window(url, self.state)
+            return True
+
+        # Чужой сервер. Открывать прямо на его адрес нельзя: браузер на
+        # каждом чужом компьютере спотыкался о самоподписанный сертификат и
+        # просил нажать «Дополнительно → Перейти дальше». Вместо этого
+        # поднимаем посредник на 127.0.0.1: для браузера адрес свой и
+        # доверенный, предупреждения нет совсем, а разговор с сервером
+        # по-прежнему идёт по https.
+        app = LocalApp(host, port, secure=True)
+        try:
+            url = with_version(app.start())
+        except OSError as exc:
+            note(f"не удалось открыть посредник: {exc}")
+            return False
+        # прежний посредник, если он был: человек мог уйти и вернуться,
+        # и без этого старый так и слушал бы порт до конца работы клиента
+        previous = self.state.get("app_proxy")
+        if previous is not None:
+            previous.stop()
+        self.state["app_proxy"] = app
+        note(f"приложение открыто через посредник {url} на {host}:{port}")
         open_app_window(url, self.state)
         return True
 
@@ -317,6 +343,11 @@ def run_client() -> int:
     webview.start(icon=icon_path() or None, **_webview_storage("client"))
     watcher.stop()
     keeper.stop_tray()
+    # посредник живёт в этом же процессе: без остановки он остался бы
+    # слушать порт после выхода
+    proxy = state.get("app_proxy")
+    if proxy is not None:
+        proxy.stop()
     return 0
 
 

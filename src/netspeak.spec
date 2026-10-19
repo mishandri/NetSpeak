@@ -56,6 +56,7 @@ hiddenimports = [
     "netspeak.device",
     "netspeak.history",
     "netspeak.updater",
+    "netspeak.app_proxy",
     # окно приложения: WebView2. Хук hook-webview.py сам добавит
     # WebView2Loader.dll и скрипты, без него окно просто не откроется
     "webview",
