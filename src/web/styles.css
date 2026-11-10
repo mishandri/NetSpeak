@@ -460,11 +460,11 @@ input[type="range"]::-moz-range-thumb {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* раздел видео пуст, пока показ экрана отключён */
+/* видео: камера и показ экрана; пусто — раздел не рисуется вовсе */
 .videos:empty { display: none; }
 .videos { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-bottom: 16px; }
 .video { position: relative; border-radius: var(--radius); overflow: hidden; background: #000; border: 1px solid var(--line); }
-.video video { width: 100%; display: block; max-height: 46vh; }
+.video video { width: 100%; display: block; max-height: 46vh; object-fit: contain; }
 .video__label {
   position: absolute; left: 10px; bottom: 10px; padding: 4px 10px;
   border-radius: 999px; background: rgba(0, 0, 0, .65); font-size: 12px;

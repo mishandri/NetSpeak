@@ -11,6 +11,11 @@ const RTC_CONFIG = {
 const SCREEN_BITRATE = 900 * 1000;   // ~900 кбит/с на человека
 const SCREEN_MAX_WIDTH = 960;
 const SCREEN_FPS = 10;
+// Камера скромнее экрана: она включается надолго и часто не одна, а картинка
+// с камеры мелкая и быстро меняется — лишний битрейт ей не нужен.
+const CAM_BITRATE = 500 * 1000;
+const CAM_MAX_WIDTH = 640;
+const CAM_FPS = 24;
 const AUDIO_BITRATE = 48 * 1000;     // достаточно для голоса, экономим сеть
 
 // Сколько ждём, прежде чем признать: связи нет. Обмен адресами на домашней
@@ -19,9 +24,10 @@ const AUDIO_BITRATE = 48 * 1000;     // достаточно для голоса
 const WAIT_LINK = 10;
 
 export class Voice {
-  constructor({ onState, onPeer, onError }) {
+  constructor({ onState, onPeer, onVideo, onError }) {
     this.onState = onState || (() => {});
     this.onPeer = onPeer || (() => {});
+    this.onVideo = onVideo || (() => {});
     this.onError = onError || (() => {});
     this.peers = new Map(); // id -> {pc, stream, audio, gain, analyser, speaking}
     this.ctx = null;
@@ -30,6 +36,8 @@ export class Voice {
     this.localStream = null;
     this.screenStream = null;
     this.screenTrack = null;
+    this.camStream = null;  // камера: свой поток и дорожка
+    this.camTrack = null;
     this.enabled = false;
     this.muted = false;
     this.deafened = false;
@@ -415,52 +423,115 @@ export class Voice {
     tick();
   }
 
-  /* ---------- захват экрана ---------- */
+  /* ---------- захват экрана и камера ---------- */
+  // Исходящее видео в связи одно: дорожка-слот с «пустой» картинкой
+  // добавляется при создании связи всегда, а живое содержимое — экран
+  // или камера — подменяется в слот вызовом replaceTrack. Пере-договора
+  // (renegotiation) не нужно, поэтому включение видно всем сразу.
+  // Одновременно активен один источник: последний включённый побеждает.
+
+  /** Какой трек сейчас уходит в сеть (null — «пустая» картинка слота). */
+  _whichVideo() {
+    return this.screenTrack || this.camTrack || null;
+  }
+
+  /** Подменяет исходящую картинку во всех связях. null — вернуть слот. */
+  async _switchOutgoingVideo(track) {
+    const want = track || this._blankVideoTrack();
+    for (const peer of this.peers.values()) {
+      const sender = peer.pc.getSenders().find((s) => s.track?.kind === "video");
+      if (sender) await sender.replaceTrack(want).catch(() => {});
+    }
+    this._tuneSenders();
+  }
+
   async startScreen() {
-    this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+    // сперва окно выбора: человек мог передумать — и тогда камера,
+    // если была включена, честно остаётся работать
+    const stream = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: SCREEN_FPS, width: { max: SCREEN_MAX_WIDTH } },
       audio: false,
     });
-    this.screenTrack = this.screenStream.getVideoTracks()[0];
+    if (this.camTrack) await this.stopCam(); // один слот: экран вместо камеры
+    this.screenStream = stream;
+    this.screenTrack = stream.getVideoTracks()[0];
+    // человек остановил показ кнопкой самого браузера — прибираемся сами
     this.screenTrack.addEventListener("ended", () => this.stopScreen());
-    // трек отправителя уже создан при connectPeer — просто подменяем картинку
-    for (const peer of this.peers.values()) {
-      const sender = peer.pc.getSenders().find((s) => s.track?.kind === "video");
-      if (sender) await sender.replaceTrack(this.screenTrack);
-    }
-    this._tuneSenders();
+    await this._switchOutgoingVideo(this.screenTrack);
+    this.onVideo({ screen: true, cam: false });
     return this.screenTrack;
   }
 
-  /** Ограничивает битрейт: аудио всегда, видео — только когда идёт экран. */
-  _tuneSenders() {
-    for (const peer of this.peers.values()) {
-      for (const sender of peer.pc.getSenders()) {
-        if (!sender.track) continue;
-        const isVideo = sender.track.kind === "video";
-        if (isVideo && !this.screenTrack) continue;
-        const params = sender.getParameters();
-        if (!params.encodings || !params.encodings.length) continue;
-        params.encodings[0].maxBitrate = isVideo ? SCREEN_BITRATE : AUDIO_BITRATE;
-        sender.setParameters(params).catch(() => {});
-      }
-    }
-  }
-
   async stopScreen() {
+    if (!this.screenTrack && !this.screenStream) return;
     this.screenTrack = null;
     if (this.screenStream) {
       for (const t of this.screenStream.getTracks()) t.stop();
       this.screenStream = null;
     }
-    for (const peer of this.peers.values()) {
-      const sender = peer.pc.getSenders().find((s) => s.track?.kind === "video");
-      if (sender) await sender.replaceTrack(this._blank);
+    await this._switchOutgoingVideo(this._whichVideo());
+    this.onVideo({ screen: false, cam: !!this.camTrack });
+  }
+
+  async startCam() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Браузер не умеет доступ к камере");
     }
+    if (this.camTrack) return this.camTrack; // уже включена
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { max: CAM_MAX_WIDTH }, frameRate: { max: CAM_FPS } },
+      audio: false,
+    });
+    // пока ждали разрешения, мог включиться экран — он главнее: камера зря
+    if (this.screenTrack) {
+      for (const t of stream.getTracks()) t.stop();
+      throw new Error("сейчас показывается экран — выключите его и включите камеру");
+    }
+    this.camStream = stream;
+    this.camTrack = stream.getVideoTracks()[0];
+    // камера отвалилась (выдернули шнур, отключили в системе) — прибираемся сами
+    this.camTrack.addEventListener("ended", () => this.stopCam());
+    await this._switchOutgoingVideo(this.camTrack);
+    this.onVideo({ screen: false, cam: true });
+    return this.camTrack;
+  }
+
+  async stopCam() {
+    if (!this.camTrack && !this.camStream) return;
+    this.camTrack = null;
+    if (this.camStream) {
+      for (const t of this.camStream.getTracks()) t.stop();
+      this.camStream = null;
+    }
+    await this._switchOutgoingVideo(this._whichVideo());
+    this.onVideo({ screen: !!this.screenTrack, cam: false });
   }
 
   get isSharing() {
     return !!this.screenTrack;
+  }
+
+  get isCamOn() {
+    return !!this.camTrack;
+  }
+
+  /** Ограничивает битрейт: аудио всегда, видео — только когда оно реально
+   *  идёт (экран или камера), а не когда просто занят слот. */
+  _tuneSenders() {
+    const screen = !!this.screenTrack;
+    const cam = !!this.camTrack;
+    for (const peer of this.peers.values()) {
+      for (const sender of peer.pc.getSenders()) {
+        if (!sender.track) continue;
+        const isVideo = sender.track.kind === "video";
+        if (isVideo && !screen && !cam) continue;
+        const params = sender.getParameters();
+        if (!params.encodings || !params.encodings.length) continue;
+        params.encodings[0].maxBitrate =
+          isVideo ? (screen ? SCREEN_BITRATE : CAM_BITRATE) : AUDIO_BITRATE;
+        sender.setParameters(params).catch(() => {});
+      }
+    }
   }
 
   _blankVideoTrack() {
@@ -497,6 +568,13 @@ export class Voice {
     // исходящие треки: обработанный микрофон + всегда готовый видео-слот
     if (this.outTrack) pc.addTrack(this.outTrack, this.chain.dest.stream);
     pc.addTrack(this._blankVideoTrack(), this._blankStream);
+    // включился посреди трансляции: слот уже в связи, подменяем содержимое
+    // на живую картинку — иначе новые участники видели бы чёрный квадрат
+    const live = this._whichVideo();
+    if (live) {
+      const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+      if (sender) sender.replaceTrack(live).catch(() => {});
+    }
 
     pc.ontrack = (ev) => {
       if (ev.track.kind === "audio") {
@@ -799,6 +877,9 @@ export class Voice {
     if (this.screenStream) for (const t of this.screenStream.getTracks()) t.stop();
     this.screenStream = null;
     this.screenTrack = null;
+    if (this.camStream) for (const t of this.camStream.getTracks()) t.stop();
+    this.camStream = null;
+    this.camTrack = null;
     if (this.mic) for (const t of this.mic.getTracks()) t.stop();
     this.mic = null;
     this.track = null;

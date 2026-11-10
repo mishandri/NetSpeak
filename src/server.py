@@ -157,7 +157,7 @@ def safe_filename(raw: str) -> str:
 
 class Member:
     __slots__ = ("id", "uid", "name", "channel", "color", "muted", "deafened",
-                 "sharing", "ping", "since", "queue", "closed", "budget", "_t",
+                 "sharing", "cam", "ping", "since", "queue", "closed", "budget", "_t",
                  "last_seen", "avatar", "avatar_rev", "showCircle",
                  "client_version")
 
@@ -175,6 +175,7 @@ class Member:
         self.muted = False
         self.deafened = False
         self.sharing = False
+        self.cam = False   # включена ли камера — видят другие, как и «экран»
         self.ping = 0
         self.since = time.time()
         self.queue: queue.SimpleQueue = queue.SimpleQueue()
@@ -197,6 +198,7 @@ class Member:
             "muted": self.muted,
             "deafened": self.deafened,
             "sharing": self.sharing,
+            "cam": self.cam,
             "ping": int(self.ping),
             "since": int(self.since),
             "avatar": avatar_url(self.avatar, self.avatar_rev),
@@ -574,6 +576,9 @@ class Hub:
                         changed = True
             if "sharing" in data and bool(data["sharing"]) != member.sharing:
                 member.sharing = bool(data["sharing"])
+                changed = True
+            if "cam" in data and bool(data["cam"]) != member.cam:
+                member.cam = bool(data["cam"])
                 changed = True
             if "ping" in data:
                 member.ping = min(9999, max(0, int(data["ping"] or 0)))

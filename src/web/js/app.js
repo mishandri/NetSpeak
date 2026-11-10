@@ -27,6 +27,8 @@ const els = {
   appVersion: $("appVersion"),
   membersList: $("membersList"), membersCount: $("membersCount"),
   micBtn: $("micBtn"), micLabel: $("micLabel"), deafenBtn: $("deafenBtn"),
+  camBtn: $("camBtn"), camLabel: $("camLabel"),
+  screenBtn: $("screenBtn"), screenLabel: $("screenLabel"),
   leaveBtn: $("leaveBtn"), pttHint: $("pttHint"),
   settingsModal: $("settingsModal"), closeSettings: $("closeSettings"),
   saveSettings: $("saveSettings"), modeSegment: $("modeSegment"),
@@ -652,6 +654,17 @@ const voice = new Voice({
       updateTiles();
     }
   },
+  onVideo: (v) => {
+    // единая точка правды о своём исходящем видео: сюда приходят и нажатия
+    // кнопок, и «Stop sharing» в самом браузере, и отвалившаяся камера.
+    if (v.screen) state.sharedVideo.set(state.sid, new MediaStream([voice.screenTrack]));
+    else if (v.cam) state.sharedVideo.set(state.sid, new MediaStream([voice.camTrack]));
+    else state.sharedVideo.delete(state.sid);
+    renderVideos();
+    // флаги уходят в список участников — у других появляется видео-плитка
+    send({ type: "update", sharing: !!v.screen, cam: !!v.cam }).catch(() => {});
+    updateControls();
+  },
   onError: (e) => toast(e.message || "Ошибка звука", "err"),
 });
 voice._send = send;
@@ -1025,8 +1038,11 @@ function sizeClass(n) {
 }
 
 function renderVideos() {
+  // своё превью показываем сразу, не дожидаясь эха сервера: у себя
+  // флаг и так правда; чужие плитки видны, пока у них sharing или cam
   const items = [...state.sharedVideo.entries()].filter(
-    ([id]) => state.users.get(id)?.sharing);
+    ([id]) => id === state.sid
+      || state.users.get(id)?.sharing || state.users.get(id)?.cam);
   els.videos.innerHTML = items.map(([id, stream]) => {
     const u = state.users.get(id);
     const vid = `v_${id}`;
@@ -1035,7 +1051,7 @@ function renderVideos() {
       if (el) { el.srcObject = stream; el.play().catch(() => {}); }
     }, 0);
     return `<div class="video"><video id="${vid}" autoplay playsinline muted></video>
-      <span class="video__label">${escapeHtml(u?.name || "Экран")}</span></div>`;
+      <span class="video__label">${escapeHtml(u?.name || "Видео")}</span></div>`;
   }).join("");
 }
 
@@ -1167,6 +1183,15 @@ function updateControls() {
   els.deafenBtn.querySelector("use").setAttribute("href", voice.deafened ? "#i-head" : "#i-head");
   els.deafenBtn.querySelector("span").textContent = voice.deafened ? "Звук выкл" : "Звук вкл";
 
+  els.camBtn.classList.toggle("is-on", voice.isCamOn);
+  els.camBtn.classList.toggle("is-off", !voice.isCamOn);
+  els.camBtn.querySelector("use").setAttribute("href", voice.isCamOn ? "#i-cam" : "#i-cam-off");
+  els.camLabel.textContent = voice.isCamOn ? "Камера вкл" : "Камера выкл";
+
+  els.screenBtn.classList.toggle("is-on", voice.isSharing);
+  els.screenBtn.classList.toggle("is-off", !voice.isSharing);
+  els.screenLabel.textContent = voice.isSharing ? "Остановить экран" : "Экран";
+
   els.pttHint.hidden = state.settings.mode !== "ptt";
   if (state.settings.mode === "ptt") {
     els.pttHint.textContent = `Говорите: удерживайте ${keyLabel(state.settings.key)}`;
@@ -1197,21 +1222,29 @@ async function toggleDeafen() {
   send({ type: "update", muted: voice.muted, deafened: voice.deafened });
 }
 
-/* Показ экрана отключён: кнопки в интерфейсе нет.
-   Функция оставлена на случай возврата — достаточно вернуть кнопку. */
+/* Камера и экран: состояние (флаги у сервера, превью, кнопки) ведёт
+   колбэк onVideo — он срабатывает и от этих кнопок, и когда человек
+   останавливает показ кнопкой самого браузера. */
 async function toggleShare() {
+  await ensureMic();
   try {
-    await ensureMic();
-    if (voice.isSharing) {
-      await voice.stopScreen();
-      send({ type: "update", sharing: false });
-    } else {
-      await voice.startScreen();
-      send({ type: "update", sharing: true });
-    }
-    updateControls();
+    if (voice.isSharing) await voice.stopScreen();
+    else await voice.startScreen();
   } catch (e) {
-    toast("Не удалось показать экран", "err");
+    // отказ в окне выбора экрана — не поломка: человек просто передумал
+    const name = (e && (e.name || e.code)) || "";
+    if (name === "NotAllowedError" || name === "AbortError") return;
+    toast("Не удалось показать экран: " + (e.message || e), "err");
+  }
+}
+
+async function toggleCam() {
+  await ensureMic();
+  try {
+    if (voice.isCamOn) await voice.stopCam();
+    else await voice.startCam();
+  } catch (e) {
+    toast("Не удалось включить камеру: " + (e.message || e), "err");
   }
 }
 
@@ -1262,6 +1295,8 @@ els.chatText.onkeydown = (e) => {
 
 els.micBtn.onclick = toggleMic;
 els.deafenBtn.onclick = toggleDeafen;
+els.camBtn.onclick = toggleCam;
+els.screenBtn.onclick = toggleShare;
 
 els.leaveBtn.onclick = async () => {
   // после выхода показываем окно входа, а не заходим автоматически

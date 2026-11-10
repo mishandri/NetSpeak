@@ -76,7 +76,7 @@ def _give_tray_its_own_context() -> None:
 
 
 def _give_page_mic_permission() -> None:
-    """Странице — разрешение на микрофон без окна с вопросом.
+    """Странице — разрешение на микрофон, камеру и экран без окна с вопросом.
 
     WebKitGTK сам никакого диалога не показывает: если у окна нет
     обработчика сигнала permission-request, запрос получает отказ
@@ -84,11 +84,12 @@ def _give_page_mic_permission() -> None:
     устройств. В Windows (WebView2) этот вопрос решает сама система, а
     в GTK диалога нет совсем, поэтому обработчик ставим мы.
 
-    Разрешается только медиа (UserMediaPermissionRequest — микрофон с
-    камерой): это цель программы, и окно знает точно, какую страницу
-    оно показывает. Всё остальное — уведомления, геолокация и прочее —
-    отказ: страница об этом не просила, а разрешения собираются
-    без напоминаний и не вслепую.
+    Разрешается только медиа: UserMediaPermissionRequest — микрофон и
+    камера, DisplayMediaPermissionRequest — показ своего экрана. Это
+    цель программы, и окно знает точно, какую страницу оно показывает.
+    Всё остальное — уведомления, геолокация и прочее — отказ: страница
+    об этом не просила, а разрешения собираются без напоминаний и не
+    вслепую.
     """
     try:
         from webview.platforms import gtk as gtk_backend
@@ -96,9 +97,16 @@ def _give_page_mic_permission() -> None:
         return  # не Linux/без GTK — вопрос и не встанет
     try:
         from gi.repository import WebKit2
-        media_class = getattr(WebKit2, "UserMediaPermissionRequest", None)
+        # Показ экрана появился в WebKitGTK не сразу: старые версии класс
+        # не знают. Тогда экран не заработает, но микрофон живёт как жил —
+        # поэтому каждый класс ищем отдельно, и недостающий в список
+        # разрешённых просто не попадает.
+        media_classes = [c for c in (
+            getattr(WebKit2, "UserMediaPermissionRequest", None),
+            getattr(WebKit2, "DisplayMediaPermissionRequest", None),
+        ) if c is not None]
     except Exception:
-        media_class = None
+        media_classes = []
 
     original = gtk_backend.BrowserView.__init__
     if getattr(original, "_netspeak_media", False):
@@ -106,7 +114,7 @@ def _give_page_mic_permission() -> None:
 
     def _ns_asked(webview, request):
         try:
-            if media_class is not None and isinstance(request, media_class):
+            if any(isinstance(request, c) for c in media_classes):
                 request.allow()
             else:
                 request.deny()
