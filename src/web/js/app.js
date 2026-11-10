@@ -667,10 +667,13 @@ const voice = new Voice({
       return;
     }
     if (info.video) {
-      // пришла чужая дорожка: оживёт в плитке, когда сервер подтвердит
-      // флаг камеры, и на большом экране, если человек показывает свой
-      renderScreen();
+      // пришла чужая камера: оживёт в плитке, когда сервер подтвердит
+      // флаг камеры
       updateTiles();
+    }
+    if (info.screen) {
+      // пришёл чужой показ экрана: большое окно слева
+      renderScreen();
     }
     if (info.speaking !== undefined) {
       if (info.speaking) state.speaking.add(peerId);
@@ -681,8 +684,9 @@ const voice = new Voice({
   onVideo: (v) => {
     // единая точка правды о своём исходящем видео: сюда приходят и нажатия
     // кнопок, и «Stop sharing» в самом браузере, и отвалившаяся камера.
-    // Своя картинка берётся прямо из voice.videoStreamOf(state.sid), поэтому
-    // здесь остаётся перерисовать сцену и сообщить флаги остальным.
+    // Своя камера берётся из voice.camStreamOf(state.sid), свой экран —
+    // из voice.screenStreamOf(state.sid), поэтому здесь остаётся
+    // перерисовать сцену и сообщить флаги остальным.
     if (v.screen) state.screenWanted = false; // свой экран уже включён — ждать некого
     renderScreen();
     updateTiles();
@@ -933,10 +937,13 @@ function memberRow(u) {
    колонок = min(3, ceil(√n)), заполнение по строкам, неполная строка
    по центру. Так 3 человека — это 2+1, а 7 — это 3+3+1.
    Когда кто-то показывает экран, сцена делится: слева большой экран,
-   справа все участники столбиком. */
+   справа все участники столбиком, и ХостЭкран всегда первый в столбике
+   для всех — его плитку сортируем наверх (сорт стабильный: остальные
+   остаются в прежнем порядке). */
 function updateTiles() {
   const people = [...state.users.values()].filter((u) => u.channel === state.channel);
   const host = people.find((u) => u.sharing) || null;
+  if (host) people.sort((a, b) => (b.sharing ? 1 : 0) - (a.sharing ? 1 : 0));
   els.stageEmpty.hidden = people.length > 0;
   els.stage.classList.toggle("is-presenting", !!host);
   els.tileGrid.className = "stage__people " + sizeClass(people.length)
@@ -996,7 +1003,7 @@ function syncTileVideos() {
       el.className = "tile__cam-video";
       tileVideos.set(id, el);
     }
-    const stream = voice.videoStreamOf(id);
+    const stream = voice.camStreamOf(id);
     if (stream && el.srcObject !== stream) {
       el.srcObject = stream;
       el.play().catch(() => {});
@@ -1129,7 +1136,7 @@ let screenTitle = "";
 function renderScreen() {
   const host = [...state.users.values()].find(
     (u) => u.channel === state.channel && u.sharing);
-  const stream = host ? voice.videoStreamOf(host.id) : null;
+  const stream = host ? voice.screenStreamOf(host.id) : null;
   if (!stream) {
     if (screenVideoEl.srcObject) screenVideoEl.srcObject = null;
     els.videos.replaceChildren();

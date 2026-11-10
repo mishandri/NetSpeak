@@ -18,6 +18,13 @@ const CAM_MAX_WIDTH = 640;
 const CAM_FPS = 24;
 const AUDIO_BITRATE = 48 * 1000;     // достаточно для голоса, экономим сеть
 
+// Два постоянных видео-слота в каждой связи: 0 — камера, 1 — экран.
+// Оба заводятся при создании связи с «пустой» картинкой, поэтому камера
+// и показ экрана идут одновременно, а подмена живого трека по-прежнему
+// не требует пере-договора (renegotiation).
+const SLOT_CAM = 0;
+const SLOT_SCREEN = 1;
+
 // Сколько ждём, прежде чем признать: связи нет. Обмен адресами на домашней
 // сети укладывается в пару секунд; если за десять не вышло — почти наверняка
 // не пускает брандмауэр, и молчать дальше незачем.
@@ -64,8 +71,9 @@ export class Voice {
     // связи: пересоздание сбрасывает её счётчик, и предупреждение мигало бы
     // между «ждём» и «не вышло».
     this._failedSince = new Map();
-    this._blank = null;
-    this._blankStream = null;
+    this._blanks = [];    // «пустые» треки-слоты: [камера, экран]
+    this._camView = null;    // кэш обёрток своего видео для интерфейса
+    this._screenView = null;
     this.micState = "pending"; // pending | granted | denied
     this.lastMicError = null;
   }
@@ -424,22 +432,18 @@ export class Voice {
   }
 
   /* ---------- захват экрана и камера ---------- */
-  // Исходящее видео в связи одно: дорожка-слот с «пустой» картинкой
-  // добавляется при создании связи всегда, а живое содержимое — экран
-  // или камера — подменяется в слот вызовом replaceTrack. Пере-договора
-  // (renegotiation) не нужно, поэтому включение видно всем сразу.
-  // Одновременно активен один источник: последний включённый побеждает.
+  // Исходящего видео в связи два постоянных слота: 0 — камера, 1 — экран.
+  // Оба слота с «пустой» картинкой добавляются при создании связи всегда,
+  // а живое содержимое подменяется вызовом replaceTrack по своему слоту.
+  // Пере-договора (renegotiation) не нужно, поэтому включение видно всем
+  // сразу, и камера с показом экрана работают одновременно.
 
-  /** Какой трек сейчас уходит в сеть (null — «пустая» картинка слота). */
-  _whichVideo() {
-    return this.screenTrack || this.camTrack || null;
-  }
-
-  /** Подменяет исходящую картинку во всех связях. null — вернуть слот. */
-  async _switchOutgoingVideo(track) {
-    const want = track || this._blankVideoTrack();
+  /** Подменяет исходящую картинку во всех связях в заданном слоте.
+   *  null — вернуть «пустую» картинку слота. */
+  async _switchOutgoingVideo(track, slot) {
+    const want = track || this._blankTrack(slot);
     for (const peer of this.peers.values()) {
-      const sender = peer.pc.getSenders().find((s) => s.track?.kind === "video");
+      const sender = slot === SLOT_SCREEN ? peer.screenSender : peer.camSender;
       if (sender) await sender.replaceTrack(want).catch(() => {});
     }
     this._tuneSenders();
@@ -452,13 +456,12 @@ export class Voice {
       video: { frameRate: SCREEN_FPS, width: { max: SCREEN_MAX_WIDTH } },
       audio: false,
     });
-    if (this.camTrack) await this.stopCam(); // один слот: экран вместо камеры
     this.screenStream = stream;
     this.screenTrack = stream.getVideoTracks()[0];
     // человек остановил показ кнопкой самого браузера — прибираемся сами
     this.screenTrack.addEventListener("ended", () => this.stopScreen());
-    await this._switchOutgoingVideo(this.screenTrack);
-    this.onVideo({ screen: true, cam: false });
+    await this._switchOutgoingVideo(this.screenTrack, SLOT_SCREEN);
+    this.onVideo({ screen: true, cam: !!this.camTrack });
     return this.screenTrack;
   }
 
@@ -469,7 +472,7 @@ export class Voice {
       for (const t of this.screenStream.getTracks()) t.stop();
       this.screenStream = null;
     }
-    await this._switchOutgoingVideo(this._whichVideo());
+    await this._switchOutgoingVideo(null, SLOT_SCREEN);
     this.onVideo({ screen: false, cam: !!this.camTrack });
   }
 
@@ -482,17 +485,12 @@ export class Voice {
       video: { width: { max: CAM_MAX_WIDTH }, frameRate: { max: CAM_FPS } },
       audio: false,
     });
-    // пока ждали разрешения, мог включиться экран — он главнее: камера зря
-    if (this.screenTrack) {
-      for (const t of stream.getTracks()) t.stop();
-      throw new Error("сейчас показывается экран — выключите его и включите камеру");
-    }
     this.camStream = stream;
     this.camTrack = stream.getVideoTracks()[0];
     // камера отвалилась (выдернули шнур, отключили в системе) — прибираемся сами
     this.camTrack.addEventListener("ended", () => this.stopCam());
-    await this._switchOutgoingVideo(this.camTrack);
-    this.onVideo({ screen: false, cam: true });
+    await this._switchOutgoingVideo(this.camTrack, SLOT_CAM);
+    this.onVideo({ screen: !!this.screenTrack, cam: true });
     return this.camTrack;
   }
 
@@ -503,7 +501,7 @@ export class Voice {
       for (const t of this.camStream.getTracks()) t.stop();
       this.camStream = null;
     }
-    await this._switchOutgoingVideo(this._whichVideo());
+    await this._switchOutgoingVideo(null, SLOT_CAM);
     this.onVideo({ screen: !!this.screenTrack, cam: false });
   }
 
@@ -516,56 +514,88 @@ export class Voice {
   }
 
   /**
-   * Поток для показа в интерфейсе: свой исходящий или чужой входящий.
+   * Потоки для показа в интерфейсе: свой исходящий или чужой входящий.
    *
-   * Своё — экран, а без него камера. Оборачивание трека в MediaStream
-   * кэшируем: элементы <video> сравнивают srcObject с потоком, и новый
-   * объект при каждом вызове заставлял бы картинку мигать при каждой
-   * перерисовке плиток.
+   * Камера и экран — отдельные слоты, поэтому и обёртки отдельные:
+   * camStreamOf отдаёт камеру, screenStreamOf — показ экрана.
+   * Оборачивание трека в MediaStream кэшируем: элементы <video> сравнивают
+   * srcObject с потоком, и новый объект при каждом вызове заставлял бы
+   * картинку мигать при каждой перерисовке плиток.
    */
-  videoStreamOf(peerId) {
+  camStreamOf(peerId) {
     if (peerId === this.selfId) {
-      const track = this.screenTrack || this.camTrack;
-      if (!track) return null;
-      if (!this._outView || this._outView.track !== track) {
-        this._outView = { track, stream: new MediaStream([track]) };
+      if (!this.camTrack) return null;
+      if (!this._camView || this._camView.track !== this.camTrack) {
+        this._camView = { track: this.camTrack, stream: new MediaStream([this.camTrack]) };
       }
-      return this._outView.stream;
+      return this._camView.stream;
     }
     return this.peers.get(peerId)?.video || null;
   }
 
-  /** Ограничивает битрейт: аудио всегда, видео — только когда оно реально
-   *  идёт (экран или камера), а не когда просто занят слот. */
+  screenStreamOf(peerId) {
+    if (peerId === this.selfId) {
+      if (!this.screenTrack) return null;
+      if (!this._screenView || this._screenView.track !== this.screenTrack) {
+        this._screenView = { track: this.screenTrack, stream: new MediaStream([this.screenTrack]) };
+      }
+      return this._screenView.stream;
+    }
+    return this.peers.get(peerId)?.screen || null;
+  }
+
+  /** Ограничивает битрейт: аудио всегда, видео-слот — только когда в нём
+   *  реально идёт живая картинка, а не «пустая» заглушка. */
   _tuneSenders() {
     const screen = !!this.screenTrack;
     const cam = !!this.camTrack;
     for (const peer of this.peers.values()) {
-      for (const sender of peer.pc.getSenders()) {
-        if (!sender.track) continue;
-        const isVideo = sender.track.kind === "video";
-        if (isVideo && !screen && !cam) continue;
-        const params = sender.getParameters();
-        if (!params.encodings || !params.encodings.length) continue;
-        params.encodings[0].maxBitrate =
-          isVideo ? (screen ? SCREEN_BITRATE : CAM_BITRATE) : AUDIO_BITRATE;
-        sender.setParameters(params).catch(() => {});
-      }
+      const audio = peer.pc.getSenders().find((s) => s.track?.kind === "audio");
+      if (audio) this._tuneOne(audio, AUDIO_BITRATE);
+      if (cam && peer.camSender) this._tuneOne(peer.camSender, CAM_BITRATE);
+      if (screen && peer.screenSender) this._tuneOne(peer.screenSender, SCREEN_BITRATE);
     }
   }
 
-  _blankVideoTrack() {
-    if (this._blank) return this._blank;
+  _tuneOne(sender, bitrate) {
+    const params = sender.getParameters();
+    if (!params.encodings || !params.encodings.length) return;
+    params.encodings[0].maxBitrate = bitrate;
+    sender.setParameters(params).catch(() => {});
+  }
+
+  /** «Пустая» картинка слота: 2×2 серый холст. Слотов два — камера и экран,
+   *  и у каждого свой трек, чтобы replaceTrack не дёргал общий источник. */
+  _blankTrack(slot) {
+    if (this._blanks[slot]) return this._blanks[slot];
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 2;
-    this._blankStream = canvas.captureStream(1);
-    this._blank = this._blankStream.getVideoTracks()[0];
-    return this._blank;
+    const stream = canvas.captureStream(1);
+    this._blanks[slot] = stream.getVideoTracks()[0];
+    return this._blanks[slot];
   }
 
   /* ---------- связи между участниками ---------- */
   setSelf(id) {
     this.selfId = id;
+  }
+
+  /**
+   * Какой видео-слот у транссивера этой связи: камера или экран.
+   *
+   * Сигналингом слоты не различаются — оба peers добавляют видео-треки
+   * в одном порядке (сначала камера, потом экран), поэтому номера их
+   * видео-транссиверов, отсортированные по mid, совпадают. Без transceiver
+   * (старые движки) или вне пары считаем камерой — ошибиться там нечему.
+   */
+  _videoSlotOf(pc, transceiver) {
+    if (!transceiver) return SLOT_CAM;
+    const video = pc.getTransceivers()
+      .filter((t) => t.receiver?.track?.kind === "video")
+      .sort((a, b) => (Number(a.mid) || 0) - (Number(b.mid) || 0));
+    const idx = video.indexOf(transceiver);
+    if (idx < 0) return SLOT_CAM;
+    return Math.min(1, idx);
   }
 
   async connectPeer(peerId, initiator) {
@@ -580,20 +610,26 @@ export class Voice {
       volume: this._volumes?.get(peerId) ?? 1,
       speaking: false,
       mutedRemote: false,
-      video: null,
+      video: null,   // входящая камера
+      screen: null,  // входящий показ экрана
       pending: [], // кандидаты, пришедшие раньше описания сессии
       since: Date.now(),   // с какого момента ждём эту связь
     };
 
-    // исходящие треки: обработанный микрофон + всегда готовый видео-слот
+    // исходящие треки: обработанный микрофон + два видео-слота (камера,
+    // экран) с «пустой» картинкой. Оба peers добавляют треки в одном
+    // порядке, поэтому номера видео-транссиверов совпадают — так приёмник
+    // отличает камеру от экрана без сигналинга.
     if (this.outTrack) pc.addTrack(this.outTrack, this.chain.dest.stream);
-    pc.addTrack(this._blankVideoTrack(), this._blankStream);
-    // включился посреди трансляции: слот уже в связи, подменяем содержимое
+    peer.camSender = pc.addTrack(this._blankTrack(SLOT_CAM), new MediaStream([this._blankTrack(SLOT_CAM)]));
+    peer.screenSender = pc.addTrack(this._blankTrack(SLOT_SCREEN), new MediaStream([this._blankTrack(SLOT_SCREEN)]));
+    // включился посреди трансляции: слоты уже в связи, подменяем содержимое
     // на живую картинку — иначе новые участники видели бы чёрный квадрат
-    const live = this._whichVideo();
-    if (live) {
-      const sender = pc.getSenders().find((s) => s.track?.kind === "video");
-      if (sender) sender.replaceTrack(live).catch(() => {});
+    if (this.camTrack) {
+      peer.camSender.replaceTrack(this.camTrack).catch(() => {});
+    }
+    if (this.screenTrack) {
+      peer.screenSender.replaceTrack(this.screenTrack).catch(() => {});
     }
 
     pc.ontrack = (ev) => {
@@ -611,8 +647,13 @@ export class Voice {
         this.unlockAudio();
       } else if (ev.track.kind === "video") {
         const stream = ev.streams[0] || new MediaStream([ev.track]);
-        peer.video = stream;
-        this.onPeer(peerId, { video: stream });
+        if (this._videoSlotOf(pc, ev.transceiver) === SLOT_SCREEN) {
+          peer.screen = stream;
+          this.onPeer(peerId, { screen: stream });
+        } else {
+          peer.video = stream;
+          this.onPeer(peerId, { video: stream });
+        }
       }
     };
 
@@ -900,6 +941,9 @@ export class Voice {
     if (this.camStream) for (const t of this.camStream.getTracks()) t.stop();
     this.camStream = null;
     this.camTrack = null;
+    this._camView = null;
+    this._screenView = null;
+    this._blanks = [];
     if (this.mic) for (const t of this.mic.getTracks()) t.stop();
     this.mic = null;
     this.track = null;
