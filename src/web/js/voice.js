@@ -515,6 +515,26 @@ export class Voice {
     return !!this.camTrack;
   }
 
+  /**
+   * Поток для показа в интерфейсе: свой исходящий или чужой входящий.
+   *
+   * Своё — экран, а без него камера. Оборачивание трека в MediaStream
+   * кэшируем: элементы <video> сравнивают srcObject с потоком, и новый
+   * объект при каждом вызове заставлял бы картинку мигать при каждой
+   * перерисовке плиток.
+   */
+  videoStreamOf(peerId) {
+    if (peerId === this.selfId) {
+      const track = this.screenTrack || this.camTrack;
+      if (!track) return null;
+      if (!this._outView || this._outView.track !== track) {
+        this._outView = { track, stream: new MediaStream([track]) };
+      }
+      return this._outView.stream;
+    }
+    return this.peers.get(peerId)?.video || null;
+  }
+
   /** Ограничивает битрейт: аудио всегда, видео — только когда оно реально
    *  идёт (экран или камера), а не когда просто занят слот. */
   _tuneSenders() {

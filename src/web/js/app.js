@@ -17,6 +17,7 @@ const els = {
   btnSettingsLogin: $("btnSettingsLogin"),
   micWarn: $("micWarn"), pttKey: $("pttKey"),
   videos: $("videos"), tileGrid: $("tileGrid"), stageEmpty: $("stageEmpty"),
+  stage: $("stage"),
   chatLog: $("chatLog"), chatForm: $("chatForm"), chatText: $("chatText"),
   attachBtn: $("attachBtn"), fileInput: $("fileInput"),
   chatTitle: $("chatTitle"), chatHint: $("chatHint"),
@@ -224,7 +225,8 @@ const state = {
   maxUsers: 8,
   dm: null,
   speaking: new Set(),
-  sharedVideo: new Map(),
+  // мы просили уступить экран? когда хозяин остановится — поздравим
+  screenWanted: false,
   source: null,
   ping: 0,
   // профиль живёт в user/profile.json на сервере
@@ -576,15 +578,13 @@ async function handle(msg) {
       pingLoop();
       // спрашиваем микрофон сразу при входе: так соединения сразу с голосом
       ensureMic().then((ok) => {
-        // В режиме «Всегда» микрофон обязан звучать сам. Раньше не звучал:
-        // init() включает дорожку выключенной, и её включал только человек
-        // — нажатием на кнопку или удержанием клавиши. В режиме «Всегда» тот,
-        // кто вошёл, оставался нем, пока не нажмёт кнопку.
-        if (ok && state.settings.mode !== "ptt" && voice.muted) {
-          voice.setMic(true);
-          send({ type: "update", muted: false, deafened: voice.deafened })
-            .catch(() => {});
-        }
+        // Микрофон при входе всегда выключен: говорить начинает только тот,
+        // кто сам нажал кнопку — в комнату не врываются со звуком. Серверу
+        // честно сообщаем своё состояние: при переподключении без
+        // перезагрузки страницы оно могло отличаться от его молчаливого
+        // «выключен по умолчанию».
+        send({ type: "update", muted: voice.muted, deafened: voice.deafened })
+          .catch(() => {});
         syncPeers();
         updateVoiceWarn();
         if (!ok) {
@@ -604,9 +604,18 @@ async function handle(msg) {
         state.channel = meNow.channel;
       }
       applyChannels();
+      // Тот, чей экран мы просили, остановился — можно пробовать снова.
+      if (state.screenWanted) {
+        const busy = [...state.users.values()].some(
+          (u) => u.id !== state.sid && u.channel === state.channel && u.sharing);
+        if (!busy && !voice.isSharing) {
+          state.screenWanted = false;
+          toast("Экран освободился — теперь можно включить ваш");
+        }
+      }
       renderUsers();
       updateTiles();
-      renderVideos();
+      renderScreen();
       renderSlots(state.users.size, state.maxUsers);
       syncPeers();
       break;
@@ -615,6 +624,20 @@ async function handle(msg) {
       break;
     case "signal":
       voice.handleSignal(msg.from, msg.data);
+      break;
+    case "screen-request":
+      // Нас просят уступить экран: показывает только один. Просьбу сервер
+      // сдерживает по частоте, так что спамить она не будет.
+      toast(`${msg.name || "Кто-то"} хочет показать экран — `
+        + "выключите свой, чтобы уступить", "warn", 10000);
+      break;
+    case "screen-denied":
+      // Не успели: экран уже занял кто-то другой (или он занят в канале,
+      // куда мы пришли). Свой показ, если успели поднять, прибираем.
+      state.screenWanted = true;
+      if (voice.isSharing) voice.stopScreen().catch(() => {});
+      toast(`${state.users.get(msg.host)?.name || "Кто-то"} сейчас показывает экран`,
+            "warn");
       break;
     case "update-available":
       showUpdateNotice(msg);
@@ -639,14 +662,15 @@ const voice = new Voice({
   onPeer: (peerId, info) => {
     if (!info) {
       state.speaking.delete(peerId);
-      state.sharedVideo.delete(peerId);
-      renderVideos();
+      renderScreen();
       updateTiles();
       return;
     }
     if (info.video) {
-      state.sharedVideo.set(peerId, info.video);
-      renderVideos();
+      // пришла чужая дорожка: оживёт в плитке, когда сервер подтвердит
+      // флаг камеры, и на большом экране, если человек показывает свой
+      renderScreen();
+      updateTiles();
     }
     if (info.speaking !== undefined) {
       if (info.speaking) state.speaking.add(peerId);
@@ -657,11 +681,12 @@ const voice = new Voice({
   onVideo: (v) => {
     // единая точка правды о своём исходящем видео: сюда приходят и нажатия
     // кнопок, и «Stop sharing» в самом браузере, и отвалившаяся камера.
-    if (v.screen) state.sharedVideo.set(state.sid, new MediaStream([voice.screenTrack]));
-    else if (v.cam) state.sharedVideo.set(state.sid, new MediaStream([voice.camTrack]));
-    else state.sharedVideo.delete(state.sid);
-    renderVideos();
-    // флаги уходят в список участников — у других появляется видео-плитка
+    // Своя картинка берётся прямо из voice.videoStreamOf(state.sid), поэтому
+    // здесь остаётся перерисовать сцену и сообщить флаги остальным.
+    if (v.screen) state.screenWanted = false; // свой экран уже включён — ждать некого
+    renderScreen();
+    updateTiles();
+    // флаги уходят в список участников — у других плитка оживёт
     send({ type: "update", sharing: !!v.screen, cam: !!v.cam }).catch(() => {});
     updateControls();
   },
@@ -896,41 +921,96 @@ function memberRow(u) {
     <span class="member__name">${escapeHtml(u.name)}${me ? " <em>(вы)</em>" : ""}</span>
     <span class="member__tools">
       ${hideSlider ? "" : `<input type="range" class="vol" min="0" max="150" value="${Math.round(vol * 100)}" data-vol="${u.id}" title="Громкость"><b class="volval">${Math.round(vol * 100)}%</b>`}
+      ${u.sharing ? `<span class="micstate" title="Показывает экран"><svg class="ic ic--sm"><use href="#i-screen"/></svg></span>` : ""}
       <span class="micstate ${u.muted ? "is-off" : ""}"><svg class="ic ic--sm"><use href="#${micIcon}"/></svg></span>
     </span>
     ${me ? "" : `<button class="member__dm" data-dm="${u.id}" title="Написать в личку">✉</button>`}
   </div>`;
 }
 
-/* Плитки «кто в канале»: прямоугольники 4:3, до трёх в строке.
-   Число колонок подбирается так, чтобы сетка была ровной:
+/* Плитки «кто в канале». Обычный режим — прямоугольники 4:3 рядами,
+   число колонок подбирается так, чтобы сетка была ровной:
    колонок = min(3, ceil(√n)), заполнение по строкам, неполная строка
-   по центру. Так 3 человека — это 2+1, а 7 — это 3+3+1. */
+   по центру. Так 3 человека — это 2+1, а 7 — это 3+3+1.
+   Когда кто-то показывает экран, сцена делится: слева большой экран,
+   справа все участники столбиком. */
 function updateTiles() {
   const people = [...state.users.values()].filter((u) => u.channel === state.channel);
+  const host = people.find((u) => u.sharing) || null;
   els.stageEmpty.hidden = people.length > 0;
-  els.tileGrid.className = "stage__people " + sizeClass(people.length);
+  els.stage.classList.toggle("is-presenting", !!host);
+  els.tileGrid.className = "stage__people " + sizeClass(people.length)
+    + (host ? " is-column" : "");
   // подсказываем интерфейсу, сколько места уступить чату
   els.app.classList.toggle("is-busy", people.length >= 5 && people.length < 8);
   els.app.classList.toggle("is-crowded", people.length >= 8);
 
   const tile = (u) => {
-  const me = memberView(withMyProfile(u));
-  const broken = linkBroken(u.id);
-  return `
-    <div class="tile ${state.speaking.has(u.id) ? "is-talking" : ""}"
+    const me = memberView(withMyProfile(u));
+    const broken = linkBroken(u.id);
+    // камера в плитке вместо аватара; своя — по местной правде, чужая —
+    // по флагу сервера, пока чужая дорожка не пришла и не подтвердилась
+    const camOn = me.id === state.sid ? voice.isCamOn : !!me.cam;
+    return `
+    <div class="tile ${state.speaking.has(u.id) ? "is-talking" : ""} ${camOn ? "is-cam" : ""}"
          title="${escapeHtml(tileHint(u))}">
-      ${avatarMarkup(me, "avatar avatar--lg")}
+      ${camOn
+        ? `<div class="tile__cam${me.id === state.sid ? " is-mine" : ""}" data-cam="${me.id}"></div>`
+        : avatarMarkup(me, "avatar avatar--lg")}
+      ${me.sharing ? `<span class="tile__screen" title="Показывает экран"><svg class="ic ic--sm"><use href="#i-screen"/></svg></span>` : ""}
       ${broken ? `<span class="tile__noconn">${NO_SOUND_ICON}</span>` : ""}
       <span class="tile__name">${escapeHtml(me.name)}</span>
     </div>`;
-};
+  };
 
-  let html = "";
-  for (let i = 0; i < people.length; i += columnsFor(people.length)) {
-    html += `<div class="row">${people.slice(i, i + columnsFor(people.length)).map(tile).join("")}</div>`;
+  if (host) {
+    // столбик: ряды не нужны
+    els.tileGrid.innerHTML = people.map(tile).join("");
+  } else {
+    let html = "";
+    for (let i = 0; i < people.length; i += columnsFor(people.length)) {
+      html += `<div class="row">${people.slice(i, i + columnsFor(people.length)).map(tile).join("")}</div>`;
+    }
+    els.tileGrid.innerHTML = html;
   }
-  els.tileGrid.innerHTML = html;
+  syncTileVideos();
+}
+
+/* Видео в плитках живёт дольше одной перерисовки: событие «заговорил»
+   перестраивает плитки много раз подряд, и пересозданный <video> мигал бы.
+   Элементы лежат в Map и просто переезжают в новую разметку. */
+const tileVideos = new Map(); // id участника → постоянный <video>
+
+function syncTileVideos() {
+  const boxes = els.tileGrid.querySelectorAll("[data-cam]");
+  const alive = new Set();
+  for (const box of boxes) {
+    const id = box.dataset.cam;
+    alive.add(id);
+    let el = tileVideos.get(id);
+    if (!el) {
+      el = document.createElement("video");
+      el.autoplay = true;
+      el.playsInline = true;
+      el.muted = true; // звук идёт мимо плитки, отдельным звуковым путём
+      el.className = "tile__cam-video";
+      tileVideos.set(id, el);
+    }
+    const stream = voice.videoStreamOf(id);
+    if (stream && el.srcObject !== stream) {
+      el.srcObject = stream;
+      el.play().catch(() => {});
+    }
+    if (el.parentElement !== box) box.appendChild(el);
+  }
+  // камера выключилась или человек ушёл — элемент больше не нужен
+  for (const [id, el] of [...tileVideos]) {
+    if (!alive.has(id)) {
+      el.srcObject = null;
+      el.remove();
+      tileVideos.delete(id);
+    }
+  }
 }
 
 const NO_SOUND_ICON =
@@ -1037,22 +1117,40 @@ function sizeClass(n) {
   return "is-crowd";
 }
 
-function renderVideos() {
-  // своё превью показываем сразу, не дожидаясь эха сервера: у себя
-  // флаг и так правда; чужие плитки видны, пока у них sharing или cam
-  const items = [...state.sharedVideo.entries()].filter(
-    ([id]) => id === state.sid
-      || state.users.get(id)?.sharing || state.users.get(id)?.cam);
-  els.videos.innerHTML = items.map(([id, stream]) => {
-    const u = state.users.get(id);
-    const vid = `v_${id}`;
-    setTimeout(() => {
-      const el = document.getElementById(vid);
-      if (el) { el.srcObject = stream; el.play().catch(() => {}); }
-    }, 0);
-    return `<div class="video"><video id="${vid}" autoplay playsinline muted></video>
-      <span class="video__label">${escapeHtml(u?.name || "Видео")}</span></div>`;
-  }).join("");
+/* Большой экран слева: показывает ровно один участник канала — «ХостЭкран».
+   Очередность гарантирует сервер; здесь просто находим его и его поток.
+   Элемент <video> тоже постоянный: пересоздание заставило бы картинку мигать. */
+const screenVideoEl = document.createElement("video");
+screenVideoEl.autoplay = true;
+screenVideoEl.playsInline = true;
+screenVideoEl.muted = true;
+let screenTitle = "";
+
+function renderScreen() {
+  const host = [...state.users.values()].find(
+    (u) => u.channel === state.channel && u.sharing);
+  const stream = host ? voice.videoStreamOf(host.id) : null;
+  if (!stream) {
+    if (screenVideoEl.srcObject) screenVideoEl.srcObject = null;
+    els.videos.replaceChildren();
+    screenTitle = "";
+    return;
+  }
+  const title = host.id === state.sid ? "Ваш экран" : `Экран: ${host.name}`;
+  if (screenVideoEl.srcObject !== stream) {
+    screenVideoEl.srcObject = stream;
+    screenVideoEl.play().catch(() => {});
+  }
+  if (screenTitle !== title) {
+    screenTitle = title;
+    const box = document.createElement("div");
+    box.className = "video video--screen";
+    const label = document.createElement("span");
+    label.className = "video__label";
+    label.textContent = title;
+    box.append(screenVideoEl, label);
+    els.videos.replaceChildren(box);
+  }
 }
 
 /* ─────────────────── чат ─────────────────── */
@@ -1225,11 +1323,27 @@ async function toggleDeafen() {
 /* Камера и экран: состояние (флаги у сервера, превью, кнопки) ведёт
    колбэк onVideo — он срабатывает и от этих кнопок, и когда человек
    останавливает показ кнопкой самого браузера. */
+
+/** Кто в моём канале сейчас показывает экран — тот самый «ХостЭкран». */
+function screenHost() {
+  return [...state.users.values()].find(
+    (u) => u.id !== state.sid && u.channel === state.channel && u.sharing) || null;
+}
+
 async function toggleShare() {
   await ensureMic();
+  if (voice.isSharing) { await voice.stopScreen(); return; }
+  // Экран канала — один на всех. Если занят, не открываем окно выбора:
+  // передаём хозяину просьбу уступить и ждём, пока он освободит.
+  const host = screenHost();
+  if (host) {
+    state.screenWanted = true;
+    send({ type: "screen-request", host: host.id }).catch(() => {});
+    toast(`${host.name} сейчас показывает экран — просьба отправлена`, "warn");
+    return;
+  }
   try {
-    if (voice.isSharing) await voice.stopScreen();
-    else await voice.startScreen();
+    await voice.startScreen();
   } catch (e) {
     // отказ в окне выбора экрана — не поломка: человек просто передумал
     const name = (e && (e.name || e.code)) || "";

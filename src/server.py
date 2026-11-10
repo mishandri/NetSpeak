@@ -159,7 +159,7 @@ class Member:
     __slots__ = ("id", "uid", "name", "channel", "color", "muted", "deafened",
                  "sharing", "cam", "ping", "since", "queue", "closed", "budget", "_t",
                  "last_seen", "avatar", "avatar_rev", "showCircle",
-                 "client_version")
+                 "client_version", "last_screen_req")
 
     def __init__(self, mid: str, name: str, channel: str, color: str,
                  uid: str = ""):
@@ -172,7 +172,9 @@ class Member:
         self.name = name
         self.channel = channel
         self.color = color
-        self.muted = False
+        # Микрофон при входе всегда выключен: говорить начинает только тот,
+        # кто сам нажал кнопку. Так в комнату не врываются со звуком.
+        self.muted = True
         self.deafened = False
         self.sharing = False
         self.cam = False   # включена ли камера — видят другие, как и «экран»
@@ -187,6 +189,7 @@ class Member:
         self.avatar_rev = 0   # номер версии: растёт при каждой загрузке картинки
         self.client_version = ""   # версия клиента, если он его назвал
         self.showCircle = True  # показывать ли цветной кружок
+        self.last_screen_req = 0.0  # когда в последний раз стучались «хочу экран»
 
     def view(self) -> dict:
         return {
@@ -556,6 +559,30 @@ class Hub:
             member.last_seen = time.time()
             member_uid = member.uid or ""
 
+            # Канал — первым: последующие флаги (экран, камера) применяются
+            # уже к новому каналу. Иначе «перейти в другой канал и показать
+            # экран» проверило бы занятость в старом.
+            if "channel" in data and data["channel"] in self.channel_ids():
+                if member.channel != data["channel"]:
+                    # Нельзя прийти в чужой канал с уже поднятым экраном:
+                    # там свой показ. Экран честно гасим — клиент по
+                    # screen-denied приберётся и покажет подсказку.
+                    if member.sharing:
+                        rival = self._screen_host(data["channel"], member.id)
+                        if rival is not None:
+                            member.sharing = False
+                            self._push(member,
+                                       {"e": "screen-denied", "host": rival.id})
+                    member.channel = data["channel"]
+                    changed = True
+                    sys_msg = {
+                        "kind": "system", "channel": member.channel, "name": "",
+                        "text": f"{member.name} перешёл в «"
+                                 f"{self.channels_name(member.channel)}»",
+                        "ts": int(time.time()),
+                    }
+                    self._remember(sys_msg)
+
             if "muted" in data and bool(data["muted"]) != member.muted:
                 member.muted = bool(data["muted"])
                 changed = True
@@ -574,9 +601,24 @@ class Hub:
                     if not member.muted:
                         member.muted = True
                         changed = True
+            # Экран канала — один на всех («ХостЭкран»). Кто занял первым,
+            # тот и показывает: остальным флаг не ставится, а хозяину
+            # уходит просьба уступить. Гонку решает сервер, не клиенты.
             if "sharing" in data and bool(data["sharing"]) != member.sharing:
-                member.sharing = bool(data["sharing"])
-                changed = True
+                if bool(data["sharing"]):
+                    host = self._screen_host(member.channel, member.id)
+                    if host is None:
+                        member.sharing = True
+                        changed = True
+                    else:
+                        # просим хозяина уступить и отказываем просившему:
+                        # его клиент по этому сообщению приберёт свой показ
+                        self._push(host, {"e": "screen-request",
+                                          "from": member.id, "name": member.name})
+                        self._push(member, {"e": "screen-denied", "host": host.id})
+                else:
+                    member.sharing = False
+                    changed = True
             if "cam" in data and bool(data["cam"]) != member.cam:
                 member.cam = bool(data["cam"])
                 changed = True
@@ -600,18 +642,6 @@ class Hub:
                 changed = True
                 circle_touched = True
 
-            if "channel" in data and data["channel"] in self.channel_ids():
-                if member.channel != data["channel"]:
-                    member.channel = data["channel"]
-                    changed = True
-                    sys_msg = {
-                        "kind": "system", "channel": member.channel, "name": "",
-                        "text": f"{member.name} перешёл в «"
-                                 f"{self.channels_name(member.channel)}»",
-                        "ts": int(time.time()),
-                    }
-                    self._remember(sys_msg)
-
         # Своё имя и аватар человек хозяин: сохраняем, чтобы вернуть их,
         # даже если он выйдет, а потом вернётся с почищенным браузером.
         if member_uid and (renamed or avatar_touched or circle_touched):
@@ -622,6 +652,35 @@ class Hub:
             self.broadcast({"e": "chat", "message": sys_msg})
         if changed:
             self.broadcast_state()
+
+    def _screen_host(self, channel: str, except_id: str) -> "Member | None":
+        """Кто в канале уже показывает экран (кроме except_id). Вызывается под замком."""
+        for other in self.members.values():
+            if other.id != except_id and other.channel == channel and other.sharing:
+                return other
+        return None
+
+    def screen_request(self, sid: str, host_id: str) -> None:
+        """Просьба «хочу показать экран» — передать хозяину показа.
+
+        Повторные просьбы глотаем восемь секунд: кто стучится чаще,
+        тот скорее мешает, чем просит. Занятость перепроверяем по своим
+        данным: список у просившего мог устареть, и стучаться в пустоту
+        незачем.
+        """
+        now = time.time()
+        with self.lock:
+            member = self.members.get(sid)
+            if member is None:
+                return
+            if now - member.last_screen_req < 8.0:
+                return
+            host = self.members.get(host_id)
+            if host is None or not host.sharing or host.channel != member.channel:
+                return
+            member.last_screen_req = now
+            name = member.name
+        self._push(host, {"e": "screen-request", "from": sid, "name": name})
 
     def channels_name(self, cid: str) -> str:
         for c in self.channels:
@@ -1083,6 +1142,10 @@ class Handler(BaseHTTPRequestHandler):
             to = str(data.get("to") or "")
             if to and to != sid and HUB.members.get(to):
                 HUB.push(to, {"e": "signal", "from": sid, "data": data.get("data") or {}})
+            self._send_json({"ok": True})
+        elif kind == "screen-request":
+            # просим хозяина экрана уступить: сервер сам передаст и сдержит спам
+            HUB.screen_request(sid, str(data.get("host") or ""))
             self._send_json({"ok": True})
         elif kind == "ping":
             self._send_json({"ok": True, "e": "pong", "t": data.get("t")})
